@@ -80,7 +80,30 @@
   .subrow .sep{flex:1;}
 
   main{flex:1; min-height:0; position:relative;}
-  .map{position:absolute; inset:0; overflow:hidden; background:var(--map1);}
+  /* touch-action:none — we handle pinch/drag ourselves; without it the browser
+     zooms the whole page instead and the map never sees the gesture */
+  .map{position:absolute; inset:0; overflow:hidden; background:var(--map1); touch-action:none;}
+  .map.grabbing{cursor:grabbing;}
+
+  /* Physical right/left on purpose, not inset-inline-*: this page is dir=rtl, so
+     inline-end resolves to the LEFT — straight under the sound widget that is
+     pinned bottom-left, which left these buttons unclickable. Zoom controls are
+     a fixed screen affordance, not text, so they do not belong to the reading
+     direction. */
+  .zoomctl{position:absolute; bottom:14px; right:12px; z-index:8;
+           display:flex; flex-direction:column; gap:6px;}
+  .zoomctl button{width:40px; height:40px; border-radius:10px; border:1px solid var(--line);
+                  background:var(--card); color:var(--ink); font:inherit; font-size:1.15em;
+                  font-weight:700; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.18);
+                  display:grid; place-items:center; line-height:1;}
+  .zoomctl button:disabled{opacity:.4; cursor:default;}
+  .zoomctl button#zReset{font-size:.95em;}
+  /* centred, so it clears the sound widget (bottom-left) and the zoom buttons */
+  .zoomlvl{position:absolute; bottom:20px; left:50%; transform:translateX(-50%); z-index:8;
+           background:var(--card); border:1px solid var(--line); border-radius:999px;
+           padding:3px 10px; font-size:.72em; font-weight:700; color:var(--mut);
+           box-shadow:0 2px 8px rgba(0,0,0,.15); opacity:0; transition:opacity .25s;}
+  .zoomlvl.on{opacity:1;}
   .gridbg{position:absolute; inset:0;
     background-image:linear-gradient(var(--grid) 1px, transparent 1px),linear-gradient(90deg, var(--grid) 1px, transparent 1px);
     background-size:11% 11%; opacity:.4;}
@@ -289,9 +312,16 @@
       <button class="vbtn" id="vList">☰ רשימה</button>
     </div>
     <main>
-      <div class="map" id="mapView">
+      <div class="map" id="mapView" tabindex="0" role="application"
+           aria-label="מפת שירותי רפואה — מקשי + ו- לזום, מקשי חצים להזזה, פריסת שתי אצבעות לזום">
         <div class="gridbg"></div>
         <div id="mapInner"></div>
+        <div class="zoomlvl" id="zLvl" aria-hidden="true"></div>
+        <div class="zoomctl">
+          <button id="zIn"    title="התקרבות (+)" aria-label="התקרבות">＋</button>
+          <button id="zOut"   title="התרחקות (−)" aria-label="התרחקות">−</button>
+          <button id="zReset" title="מבט מלא (0)" aria-label="חזרה למבט מלא">⤢</button>
+        </div>
       </div>
       <div class="list" id="listView"></div>
       <div class="mapmsg" id="mapMsg" style="display:none"><div class="in" id="mapMsgTx"></div></div>
@@ -550,6 +580,9 @@ function fetchEntities(){
     .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
     .then(d=>{
       ENTITIES = jitterStacked(d.entities || []);
+      /* a fresh result set has a fresh bounding box — keep the old zoom and the
+         user is left staring at a magnified corner of somewhere else */
+      ZOOM = 1; PAN = { x:0, y:0 }; updateZoomButtons();
       aamTrack("search", "map", { s:A.s, tag:A.tag || (A.aiTags||[]).join(","), km:A.km, fund:A.fund, results:ENTITIES.length });
       $("#mCount").textContent = ENTITIES.length ? ENTITIES.length + " תוצאות" : "";
       if(!ENTITIES.length){ mapMsg("לא נמצאו תוצאות ברדיוס של " + A.km + ' ק"מ.<br>נסו להגדיל את המרחק או לשנות סינון.'); return; }
@@ -575,6 +608,68 @@ function jitterStacked(list){
   return list;
 }
 
+/* ---- zoom / pan -----------------------------------------------------------
+   The map is a bespoke proportional projection, not a tile layer, so zoom is not
+   something the library gives us: it folds into project() as a scale about the
+   view centre plus a pan offset. Screen = (base - centre) * ZOOM + centre + PAN.
+   ZOOM 1 is the fit-everything view the map has always opened at. */
+const ZMIN = 1, ZMAX = 8;
+let ZOOM = 1, PAN = { x: 0, y: 0 };
+
+const zClamp = z => Math.min(ZMAX, Math.max(ZMIN, z));
+
+/* Keep the map from being dragged off into empty space: at ZOOM 1 there is
+   nothing to pan to, and beyond that you may only pan across what zooming
+   actually revealed. */
+function clampPan(){
+  const box = $("#mapView").getBoundingClientRect();
+  const maxX = box.width  * (ZOOM - 1) / 2;
+  const maxY = box.height * (ZOOM - 1) / 2;
+  PAN.x = Math.min(maxX, Math.max(-maxX, PAN.x));
+  PAN.y = Math.min(maxY, Math.max(-maxY, PAN.y));
+}
+
+function updateZoomButtons(){
+  $("#zIn").disabled = ZOOM >= ZMAX - 0.001;
+  $("#zOut").disabled = ZOOM <= ZMIN + 0.001;
+}
+let lvlTimer = null;
+function showZoomLevel(){
+  const el = $("#zLvl");
+  el.textContent = "×" + (Math.round(ZOOM * 10) / 10);
+  el.classList.add("on");
+  clearTimeout(lvlTimer);
+  lvlTimer = setTimeout(()=> el.classList.remove("on"), 1100);
+  updateZoomButtons();
+}
+
+/* re-render at most once per frame: a pinch fires far faster than we can
+   usefully rebuild the pins */
+let zoomRaf = 0;
+function applyZoom(){
+  clampPan();
+  if(zoomRaf) return;
+  zoomRaf = requestAnimationFrame(()=>{ zoomRaf = 0; if(VIEW === "map") renderMap(); });
+  showZoomLevel();
+}
+
+/* Zoom about a focal point (pinch centre / cursor), so the spot under the
+   fingers stays put instead of the view lurching to the middle. */
+function zoomAt(nextZ, fx, fy){
+  const box = $("#mapView").getBoundingClientRect();
+  const cx = box.width / 2, cy = box.height / 2;
+  const z0 = ZOOM, z1 = zClamp(nextZ);
+  if(z1 === z0) return;
+  // solve PAN so the base point under (fx,fy) maps to (fx,fy) again after zoom
+  PAN.x = fx - cx - (fx - cx - PAN.x) * (z1 / z0);
+  PAN.y = fy - cy - (fy - cy - PAN.y) * (z1 / z0);
+  ZOOM = z1;
+  if(ZOOM === ZMIN) PAN = { x:0, y:0 };   // snapped back to the full view
+  applyZoom();
+}
+function zoomBy(f){ const b = $("#mapView").getBoundingClientRect(); zoomAt(ZOOM * f, b.width/2, b.height/2); }
+function zoomReset(){ ZOOM = 1; PAN = { x:0, y:0 }; applyZoom(); aamTrack("map_zoom_reset"); }
+
 /* ---- proportional projection: bbox of user + all entities, +20% margin ---- */
 function project(){
   const box = $("#mapView").getBoundingClientRect();
@@ -595,10 +690,14 @@ function project(){
   const usedW = mW * scale, usedH = mH * scale;
   const offX = (box.width - usedW) / 2, offY = (box.height - usedH) / 2;
   const metersPerPx = 1 / scale;
+  // zoom about the view centre, then pan (see the ZOOM/PAN block above)
+  const cx = box.width / 2, cy = box.height / 2;
+  const zx = px => (px - cx) * ZOOM + cx + PAN.x;
+  const zy = py => (py - cy) * ZOOM + cy + PAN.y;
   return {
-    x: lng => offX + ((lng - minLng) / spanLng) * usedW,
-    y: lat => offY + ((maxLat - lat) / spanLat) * usedH,
-    kmToPx: km => (km * 1000) / metersPerPx
+    x: lng => zx(offX + ((lng - minLng) / spanLng) * usedW),
+    y: lat => zy(offY + ((maxLat - lat) / spanLat) * usedH),
+    kmToPx: km => ((km * 1000) / metersPerPx) * ZOOM
   };
 }
 
@@ -658,7 +757,99 @@ function renderMap(){
     inner.appendChild(p);
   });
 }
-addEventListener("resize", ()=>{ if($("#mapScreen").classList.contains("on") && VIEW==="map" && ENTITIES.length) renderMap(); });
+addEventListener("resize", ()=>{ if($("#mapScreen").classList.contains("on") && VIEW==="map" && ENTITIES.length) clampPan(), renderMap(); });
+
+/* ---- zoom input: buttons, keyboard, wheel, pinch + drag ------------------ */
+updateZoomButtons();   // "−" starts disabled: the opening view is already zoomed out
+$("#zIn").onclick    = ()=>{ zoomBy(1.5);  aamTrack("map_zoom", "in"); };
+$("#zOut").onclick   = ()=>{ zoomBy(1/1.5); aamTrack("map_zoom", "out"); };
+$("#zReset").onclick = zoomReset;
+
+/* Keyboard: the map is a focusable application region, so +/-/0 and the arrows
+   work once it has focus — but never steal keys from a text field. */
+addEventListener("keydown", (ev)=>{
+  if(!$("#mapScreen").classList.contains("on") || VIEW !== "map") return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(ev.target.tagName) || ev.target.isContentEditable) return;
+  if($("#aiModal").classList.contains("on") || $("#enModal").classList.contains("on")) return;
+  const step = 42;
+  switch(ev.key){
+    case "+": case "=": zoomBy(1.5); break;
+    case "-": case "_": zoomBy(1/1.5); break;
+    case "0": zoomReset(); break;
+    case "ArrowUp":    PAN.y += step; applyZoom(); break;
+    case "ArrowDown":  PAN.y -= step; applyZoom(); break;
+    case "ArrowLeft":  PAN.x += step; applyZoom(); break;
+    case "ArrowRight": PAN.x -= step; applyZoom(); break;
+    default: return;
+  }
+  ev.preventDefault();
+});
+
+const mapEl = $("#mapView");
+mapEl.addEventListener("wheel", (ev)=>{
+  ev.preventDefault();
+  const b = mapEl.getBoundingClientRect();
+  zoomAt(ZOOM * (ev.deltaY < 0 ? 1.12 : 1/1.12), ev.clientX - b.left, ev.clientY - b.top);
+}, { passive:false });
+
+/* Pointer Events cover touch, mouse and pen at once: one finger drags, two
+   fingers pinch. We track live pointers ourselves rather than lean on
+   gesturestart, which only Safari implements. */
+const pts = new Map();
+let pinchStart = null, dragged = false;
+
+mapEl.addEventListener("pointerdown", (ev)=>{
+  if(ev.target.closest(".zoomctl")) return;      // buttons are not the canvas
+  pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  dragged = false;
+  if(pts.size === 2){
+    const [a, b] = [...pts.values()];
+    pinchStart = { dist: Math.hypot(a.x-b.x, a.y-b.y), zoom: ZOOM };
+  }
+  mapEl.setPointerCapture(ev.pointerId);
+  mapEl.classList.add("grabbing");
+});
+
+mapEl.addEventListener("pointermove", (ev)=>{
+  const p = pts.get(ev.pointerId);
+  if(!p) return;
+  const dx = ev.clientX - p.x, dy = ev.clientY - p.y;
+  p.x = ev.clientX; p.y = ev.clientY;
+
+  if(pts.size >= 2 && pinchStart){
+    const [a, b] = [...pts.values()];
+    const dist = Math.hypot(a.x-b.x, a.y-b.y);
+    if(pinchStart.dist > 0){
+      const box = mapEl.getBoundingClientRect();
+      zoomAt(pinchStart.zoom * (dist / pinchStart.dist),
+             (a.x + b.x)/2 - box.left, (a.y + b.y)/2 - box.top);
+    }
+    dragged = true;
+  } else if(pts.size === 1 && ZOOM > ZMIN){
+    /* one finger pans, but only where zoom created somewhere to pan to */
+    if(Math.abs(dx) + Math.abs(dy) > 2) dragged = true;
+    PAN.x += dx; PAN.y += dy;
+    applyZoom();
+  }
+});
+
+function endPointer(ev){
+  pts.delete(ev.pointerId);
+  if(pts.size < 2) pinchStart = null;
+  if(pts.size === 0) mapEl.classList.remove("grabbing");
+}
+mapEl.addEventListener("pointerup", endPointer);
+mapEl.addEventListener("pointercancel", endPointer);
+
+/* A drag that ends over a pin must not also count as tapping that pin. */
+mapEl.addEventListener("click", (ev)=>{ if(dragged){ ev.stopPropagation(); ev.preventDefault(); dragged = false; } }, true);
+
+/* double-tap / double-click to zoom in, the gesture people try first */
+mapEl.addEventListener("dblclick", (ev)=>{
+  if(ev.target.closest(".zoomctl")) return;
+  const b = mapEl.getBoundingClientRect();
+  zoomAt(ZOOM * 2, ev.clientX - b.left, ev.clientY - b.top);
+});
 
 function renderList(){
   const w = $("#listView"); w.innerHTML = "";

@@ -1,7 +1,12 @@
 node_modules/
 .env
+# live third-party secrets — the .example file is the one that belongs in git
+.env.credentials
 *.log
 .DS_Store
 backups/*.sql.gz
-# licensed audio ships with the deploy, not with the source (see client/assets/audio/README.md)
+# Licensed music ships with the deploy, not with the source, so real tracks stay
+# out of git — but the synthesized sample-*.mp3 placeholders are ours to commit.
+# See client/assets/audio/README.md
 client/assets/audio/*.mp3
+!client/assets/audio/sample-*.mp3

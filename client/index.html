@@ -369,26 +369,52 @@
   }
 
   // ------------------------------------------------------------ music ------
-  // Looping background theme. Three things make this behave rather than ambush:
-  // browsers refuse unmuted autoplay without a gesture (so we retry on the first
-  // one), reduced-motion users get silence, and the choice is remembered.
-  // Drop the track at the path below; with no file present this stays hidden.
-  const MUSIC_SRC = '/assets/audio/bg-loop.mp3';
-  let music = null;
+  // Background music comes from a library: /assets/audio/tracks.json lists the
+  // tracks, we pick one at random and move to another random one when it ends,
+  // so the loop is over the library rather than over a single file. Behaviour
+  // that keeps it from ambushing anyone: browsers refuse unmuted autoplay
+  // without a gesture (so we retry on the first one), reduced-motion users get
+  // silence, and the on/off choice is remembered.
+  const MUSIC_DIR = '/assets/audio/';
+  let music = null, TRACKS = [], lastTrack = -1, nextTrack = () => {};
 
   function musicWanted() { return localStorage.getItem('aam_music') !== 'off'; }
 
-  function initMusic() {
+  // avoid repeating the track we just played, unless it is the only one we have
+  function pickTrack() {
+    if (TRACKS.length < 2) return 0;
+    let i;
+    do { i = Math.floor(Math.random() * TRACKS.length); } while (i === lastTrack);
+    return i;
+  }
+
+  async function loadTracks() {
+    try {
+      const res = await fetch(MUSIC_DIR + 'tracks.json', { cache: 'no-cache' });
+      if (!res.ok) return [];
+      const list = await res.json();
+      return Array.isArray(list) ? list.filter((t) => t && t.file) : [];
+    } catch { return []; }        // no library deployed — stay quiet, stay hidden
+  }
+
+  async function initMusic() {
     if (AAM.reducedMotion) return;            // no motion, no sound
     const btn = $('#aam-music');
-    music = new Audio(MUSIC_SRC);
-    music.loop = true;                        // cyclic
+    TRACKS = await loadTracks();
+    if (!TRACKS.length) return;               // nothing to play, no toggle shown
+
+    music = new Audio();
     music.volume = 0.35;                      // background, not foreground
     music.preload = 'auto';
 
-    // no track deployed (404 / unplayable) -> leave the UI clean and say nothing
-    music.addEventListener('error', () => { btn.hidden = true; music = null; });
+    // a track that fails to load must not kill the library — drop it and move on
+    music.addEventListener('error', () => {
+      TRACKS.splice(lastTrack, 1);
+      if (!TRACKS.length) { btn.hidden = true; music = null; return; }
+      if (musicWanted()) nextTrack();
+    });
     music.addEventListener('canplay', () => { btn.hidden = false; });
+    music.addEventListener('ended', nextTrack);   // ended => another random one
 
     // paint from the element's own events: play() marks the audio unpaused
     // *before* it may reject, so asking .paused right after it lies to us.
@@ -402,12 +428,24 @@
 
     const tryPlay = () => music && music.play().catch(paint);
 
+    // load a random track and play it; `ended` brings us back here for the next
+    nextTrack = () => {
+      if (!music || !TRACKS.length) return;
+      lastTrack = pickTrack();
+      music.src = MUSIC_DIR + TRACKS[lastTrack].file;
+      music.load();
+      if (musicWanted()) tryPlay();
+      const t = TRACKS[lastTrack];
+      btn.title = (t.title || t.file) + (t.credit ? ' — ' + t.credit : '');
+    };
+
     btn.addEventListener('click', () => {
       if (!music) return;
       if (music.paused) { localStorage.setItem('aam_music', 'on'); tryPlay(); AAM.track('music_on'); }
       else { music.pause(); localStorage.setItem('aam_music', 'off'); AAM.track('music_off'); }
     });
 
+    nextTrack();          // first random pick
     if (musicWanted()) {
       tryPlay();
       // autoplay blocked? the next tap/key anywhere is our opening
