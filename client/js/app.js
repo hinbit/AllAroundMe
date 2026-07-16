@@ -64,6 +64,7 @@
           this.ratePrompt = data.rate_prompt || [];
           this.newBadges = data.new_badges || [];
           setCookie(COOKIE, data.uid, data.cookie_ttl_days || TTL_DAYS_DEFAULT);
+          if (window.AAM_LANG && data.profile) AAM_LANG.adopt(data.profile.ui_lang);
           return data;
         })
         .catch(() => {
@@ -113,6 +114,14 @@
         body: JSON.stringify({ uid: this.uid }),
       }).catch(() => {});
     },
+
+    // Adopt a new canonical uid (after a phone-claim merge united two profiles).
+    setUid(uid, ttlDays) {
+      this.uid = uid;
+      setCookie(COOKIE, uid, ttlDays || TTL_DAYS_DEFAULT);
+    },
+
+    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
   };
 
   addEventListener('pagehide', () => AAM.flush());

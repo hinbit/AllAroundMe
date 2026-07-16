@@ -1,8 +1,9 @@
-// Creates the schema. Idempotent (CREATE TABLE IF NOT EXISTS).
+// Creates the schema. Idempotent (CREATE TABLE IF NOT EXISTS + column migrations).
 import fs from 'fs';
 import path from 'path';
 import mysql from 'mysql2/promise';
 import { dbConfig, ROOT_DIR, log } from './env.js';
+import { applyMigrations } from './migrations.js';
 
 async function main() {
   const schemaPath = path.join(ROOT_DIR, 'server', 'sql', 'schema.sql');
@@ -15,6 +16,7 @@ async function main() {
   });
   log(`db:init connecting to ${dbConfig.user}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`);
   await conn.query(sql);
+  await applyMigrations(conn, log);
   await conn.end();
   log('db:init done — schema is up to date.');
 }

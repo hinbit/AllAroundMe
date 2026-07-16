@@ -1,7 +1,46 @@
 import express from 'express';
 import { query, queryOne } from '../db.js';
+import { config } from '../env.js';
+import { handleInbound } from '../services/whatsapp.js';
 
 const router = express.Router();
+
+// ------------------------------------------------ WhatsApp inbound hooks ----
+
+// GET /api/hooks/whatsapp — Meta Cloud API webhook verification handshake.
+router.get('/whatsapp', (req, res) => {
+  if (req.query['hub.mode'] === 'subscribe' &&
+      req.query['hub.verify_token'] === config.whatsapp.verifyToken) {
+    return res.send(req.query['hub.challenge'] || '');
+  }
+  res.sendStatus(403);
+});
+
+// POST /api/hooks/whatsapp — Meta Cloud API inbound messages: every text
+// message from a patient advances their active questionnaire conversation.
+router.post('/whatsapp', async (req, res) => {
+  res.sendStatus(200); // ack fast — Meta retries otherwise
+  try {
+    for (const entry of req.body?.entry || []) {
+      for (const change of entry.changes || []) {
+        for (const msg of change.value?.messages || []) {
+          if (msg.type === 'text' && msg.from) {
+            await handleInbound(msg.from, msg.text?.body);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[allaroundme] whatsapp webhook failed:', e.message);
+  }
+});
+
+// POST /api/hooks/wa-inbound {from, text} — generic inbound for external bots
+// (webhook mode) and for local testing of the conversation flow.
+router.post('/wa-inbound', async (req, res) => {
+  const result = await handleInbound(req.body?.from, req.body?.text);
+  res.status(result.ok ? 200 : 404).json(result);
+});
 
 // POST /api/hooks/answers — the WhatsApp bot / email flow posts patient
 // answers back here. Body: { run_id, answers: [{idx, answer}] }.

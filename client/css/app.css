@@ -162,3 +162,33 @@ input[type=text], input[type=email], input[type=password], input[type=tel], text
   width: 100%; border: 1px solid #cfe0eb; border-radius: 10px; padding: 10px; font-size: 16px;
   font-family: inherit; background: #fff; color: #123;
 }
+
+/* ---- review trust ---------------------------------------------------------- */
+.verified-pill {
+  display: inline-block; font-size: 12px; color: #1c7a43; background: #e8f7ee;
+  border: 1px solid #bfe6cd; border-radius: 10px; padding: 1px 8px; margin-inline-start: 6px;
+}
+.doc-reply {
+  margin-top: 8px; padding: 8px 10px; border-inline-start: 3px solid #16649e;
+  background: #f2f8fc; border-radius: 8px; font-size: 14px;
+}
+.flag-btn { border: 0; background: none; color: #a0b4c2; font-size: 13px; cursor: pointer; padding: 2px 4px; }
+.flag-btn:hover { color: #c33; }
+
+/* ---- language switcher ------------------------------------------------------ */
+.aam-lang-select {
+  width: auto; font-size: 13px; padding: 4px 8px; border-radius: 12px; margin-top: 4px;
+}
+
+/* ---- accessibility ---------------------------------------------------------- */
+:focus-visible { outline: 3px solid #16649e; outline-offset: 2px; border-radius: 6px; }
+.chip:focus-visible { outline-color: #a33; }
+
+@media (prefers-reduced-motion: reduce) {
+  .aam-waves::before, .aam-waves::after, .aam-tremble,
+  #aam-splash .target, .eye-c .pupil { animation: none !important; }
+  .aam-burst, .aam-press-gif { display: none !important; }
+  #aam-splash .word { transition: none; }
+  .aam-btn { transition: none; }
+  * { scroll-behavior: auto !important; }
+}

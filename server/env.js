@@ -20,6 +20,24 @@ export const config = {
   publicUrl: e.PUBLIC_URL || '',
   eshkolotApi: String(e.ESHKOLOT_API_URL || 'http://127.0.0.1:3070/api').replace(/\/$/, ''),
   profileTtlDays: Number(e.PROFILE_TTL_DAYS || 90),
+  whatsapp: {
+    // 'log' = dev, print to server log · 'cloud' = Meta WhatsApp Cloud API ·
+    // 'webhook' = POST each message to an external bot (WHATSAPP_BOT_URL)
+    mode: ['cloud', 'webhook', 'log'].includes(e.WHATSAPP_MODE) ? e.WHATSAPP_MODE : 'log',
+    token: e.WHATSAPP_TOKEN || '',
+    phoneId: e.WHATSAPP_PHONE_ID || '',
+    verifyToken: e.WHATSAPP_VERIFY_TOKEN || 'aam-verify',
+    botUrl: e.WHATSAPP_BOT_URL || '',
+  },
+  smtp: {
+    host: e.SMTP_HOST || '',
+    port: Number(e.SMTP_PORT || 587),
+    user: e.SMTP_USER || '',
+    pass: e.SMTP_PASS || '',
+    from: e.SMTP_FROM || 'AllAroundMe <no-reply@allaroundme.local>',
+  },
+  digestHour: Number(e.DIGEST_HOUR || 8),
+  schedulerEnabled: e.SCHEDULER_ENABLED !== '0',
   db: {
     host: e.DB_HOST || e.MYSQL_HOST || '127.0.0.1',
     port: Number(e.DB_PORT || e.MYSQL_PORT || 3306),

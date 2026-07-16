@@ -9,6 +9,7 @@ import reviewsRouter from './routes/reviews.js';
 import doctorsRouter from './routes/doctors.js';
 import hooksRouter from './routes/hooks.js';
 import { analyzeProxy } from './routes/analyze.js';
+import { startScheduler } from './services/scheduler.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -63,4 +64,6 @@ app.get('*', (req, res) => res.sendFile(path.join(CLIENT_DIR, 'index.html')));
 app.listen(config.port, () => {
   console.log(`[allaroundme] listening on http://127.0.0.1:${config.port}`);
   console.log(`[allaroundme] proxying /api/public -> ${config.eshkolotApi}/public`);
+  console.log(`[allaroundme] whatsapp mode: ${config.whatsapp.mode} · smtp: ${config.smtp.host || 'log'}`);
+  startScheduler();
 });

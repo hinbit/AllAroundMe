@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { query, queryOne } from '../db.js';
 import { config } from '../env.js';
+import { sendWhatsApp, normalizePhone } from '../services/whatsapp.js';
 
 const router = express.Router();
 
@@ -96,7 +97,7 @@ router.post('/session', async (req, res) => {
     profile: {
       visits: profile.visits, searches: profile.searches, points: profile.points,
       reviews_given: profile.reviews_given, allow_reviews: !!profile.allow_reviews,
-      skip_splash: !!profile.skip_splash,
+      skip_splash: !!profile.skip_splash, phone: profile.phone || null, ui_lang: profile.ui_lang || null,
     },
     new_badges: newBadges,
     rate_prompt: unrated,   // "would you like to rate the doctors you chose?"
@@ -170,6 +171,106 @@ router.post('/transcripts/action', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ----------------------------------------------- phone claiming (OTP) -------
+// The cookie loses people who switch phones; a verified WhatsApp number lets
+// the profile (points, chosen doctors, reviews) follow the person.
+
+// POST /api/profile/phone/request {uid, phone} — send a 6-digit code.
+router.post('/profile/phone/request', async (req, res) => {
+  const uid = String(req.body?.uid || '').slice(0, 24);
+  const phone = normalizePhone(req.body?.phone);
+  if (!uid || !phone) return res.status(400).json({ error: 'נדרשים uid ומספר טלפון תקין' });
+  const profile = await queryOne('SELECT uid FROM profiles WHERE uid = ?', [uid]);
+  if (!profile) return res.status(404).json({ error: 'פרופיל לא נמצא' });
+
+  const recent = await queryOne(
+    'SELECT COUNT(*) AS n FROM otp_codes WHERE phone = ? AND created_at > NOW() - INTERVAL 1 HOUR',
+    [phone]
+  );
+  if (Number(recent.n) >= 3) return res.status(429).json({ error: 'יותר מדי נסיונות — נסו שוב בעוד שעה' });
+
+  const code = String(crypto.randomInt(100000, 1000000));
+  await query(
+    `INSERT INTO otp_codes (phone, uid, code, purpose, expires_at) VALUES (?,?,?,?, NOW() + INTERVAL 10 MINUTE)`,
+    [phone, uid, code, 'claim']
+  );
+  try {
+    await sendWhatsApp(phone, `מסביב 🎯 קוד האימות שלך: ${code}\nתקף ל-10 דקות.`, 'otp');
+  } catch (e) {
+    return res.status(502).json({ error: 'שליחת הקוד נכשלה: ' + e.message });
+  }
+  const dev = config.whatsapp.mode === 'log' && config.nodeEnv !== 'production';
+  res.json({ ok: true, sent_to: phone, ...(dev ? { dev_code: code } : {}) });
+});
+
+// Move every uid-keyed row from `fromUid` onto `toUid` and sum the counters.
+// Unique keys (badges, chosen, review_reviews, review_flags) merge with IGNORE.
+async function mergeProfiles(fromUid, toUid) {
+  for (const [table, col] of [['app_sessions', 'uid'], ['app_events', 'uid'], ['transcripts', 'uid'], ['reviews', 'uid']]) {
+    await query(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [toUid, fromUid]);
+  }
+  for (const table of ['badges', 'chosen_doctors', 'review_reviews', 'review_flags']) {
+    await query(`UPDATE IGNORE ${table} SET uid = ? WHERE uid = ?`, [toUid, fromUid]);
+    await query(`DELETE FROM ${table} WHERE uid = ?`, [fromUid]); // duplicates the IGNORE left behind
+  }
+  await query(
+    `UPDATE profiles a JOIN profiles b ON b.uid = ?
+        SET a.visits = a.visits + b.visits, a.searches = a.searches + b.searches,
+            a.points = a.points + b.points, a.reviews_given = a.reviews_given + b.reviews_given,
+            a.allow_reviews = GREATEST(a.allow_reviews, b.allow_reviews),
+            a.skip_splash = GREATEST(a.skip_splash, b.skip_splash),
+            a.last_seen = NOW()
+      WHERE a.uid = ?`,
+    [fromUid, toUid]
+  );
+  await query('DELETE FROM profiles WHERE uid = ?', [fromUid]);
+}
+
+// POST /api/profile/phone/verify {uid, phone, code} — claim the profile.
+// If the phone already belongs to another profile, this device's history is
+// merged into it and the canonical uid is returned (the client re-sets its cookie).
+router.post('/profile/phone/verify', async (req, res) => {
+  const uid = String(req.body?.uid || '').slice(0, 24);
+  const phone = normalizePhone(req.body?.phone);
+  const code = String(req.body?.code || '').replace(/\D/g, '').slice(0, 6);
+  if (!uid || !phone || code.length !== 6) return res.status(400).json({ error: 'חסרים פרטים' });
+
+  const otp = await queryOne(
+    `SELECT id FROM otp_codes WHERE phone = ? AND code = ? AND used = 0 AND expires_at > NOW()
+      ORDER BY id DESC LIMIT 1`,
+    [phone, code]
+  );
+  if (!otp) return res.status(400).json({ error: 'קוד שגוי או שפג תוקפו' });
+  await query('UPDATE otp_codes SET used = 1 WHERE id = ?', [otp.id]);
+
+  const owner = await queryOne('SELECT uid FROM profiles WHERE phone = ?', [phone]);
+  let canonical = uid, merged = false;
+  if (owner && owner.uid !== uid) {
+    await mergeProfiles(uid, owner.uid);   // this device joins the existing identity
+    canonical = owner.uid;
+    merged = true;
+  } else {
+    await query('UPDATE profiles SET phone = ?, phone_verified_at = NOW() WHERE uid = ?', [phone, uid]);
+  }
+  const profile = await queryOne('SELECT * FROM profiles WHERE uid = ?', [canonical]);
+  res.json({
+    ok: true, uid: canonical, merged, cookie_ttl_days: config.profileTtlDays,
+    profile: {
+      visits: profile.visits, searches: profile.searches, points: profile.points,
+      reviews_given: profile.reviews_given, phone: profile.phone,
+    },
+  });
+});
+
+// POST /api/profile/lang {uid, lang} — persist the UI language choice.
+router.post('/profile/lang', async (req, res) => {
+  const uid = String(req.body?.uid || '').slice(0, 24);
+  const lang = ['he', 'en', 'ar', 'ru'].includes(req.body?.lang) ? req.body.lang : null;
+  if (!uid || !lang) return res.status(400).json({ error: 'חסרים uid או שפה' });
+  await query('UPDATE profiles SET ui_lang = ? WHERE uid = ?', [lang, uid]);
+  res.json({ ok: true });
+});
+
 // GET /api/profile/me?uid= — points, badges, unrated doctors.
 router.get('/profile/me', async (req, res) => {
   const uid = String(req.query.uid || '').slice(0, 24);
@@ -184,6 +285,7 @@ router.get('/profile/me', async (req, res) => {
     profile: {
       visits: profile.visits, searches: profile.searches, points: profile.points,
       reviews_given: profile.reviews_given, allow_reviews: !!profile.allow_reviews,
+      phone: profile.phone || null, ui_lang: profile.ui_lang || null,
     },
     badges, rate_prompt: unrated,
   });

@@ -13,37 +13,39 @@
 <div class="aam-page">
   <div class="aam-brand">
     <div class="en">we care 4 u 2 see each other</div>
-    <h1>⭐ ביקורות</h1>
-    <div class="muted"><a href="/">‹ חזרה למסביב</a></div>
+    <h1 data-i18n="rev.title">⭐ ביקורות</h1>
+    <div class="muted"><a href="/" data-i18n="rev.back">‹ חזרה למסביב</a></div>
+    <div id="aam-lang"></div>
   </div>
 
   <!-- rate the doctors I chose -->
   <div class="card" id="rateBox">
-    <h3 style="margin:4px 0 8px">הרופאים שבחרת</h3>
-    <div id="unratedList" class="muted">טוען…</div>
+    <h3 style="margin:4px 0 8px" data-i18n="rev.mine">הרופאים שבחרת</h3>
+    <div id="unratedList" class="muted" data-i18n="points.loading">טוען…</div>
   </div>
 
   <!-- the rating form -->
   <div class="card" id="formBox" style="display:none">
     <h3 id="formTitle" style="margin:4px 0 10px"></h3>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <span class="chip on" id="modeSimple">⭐ דירוג כללי</span>
-      <span class="chip" id="modeDomains">🎛️ 5 תחומים</span>
+    <div style="display:flex;gap:8px;margin-bottom:10px" role="group" aria-label="סוג דירוג">
+      <span class="chip on" id="modeSimple" role="button" tabindex="0" aria-pressed="true" data-i18n="rev.simple">⭐ דירוג כללי</span>
+      <span class="chip" id="modeDomains" role="button" tabindex="0" aria-pressed="false" data-i18n="rev.domains">🎛️ 5 תחומים</span>
     </div>
-    <div id="simpleMode"><div class="stars" id="overallStars"></div></div>
+    <div id="simpleMode"><div class="stars" id="overallStars" role="radiogroup" aria-label="כוכבים"></div></div>
     <div id="domainsMode" style="display:none"></div>
-    <textarea id="revText" rows="3" placeholder="אפשר גם לכתוב כמה מילים… (או להקליט בדף המפה)" style="margin-top:10px"></textarea>
-    <button class="aam-btn" id="revSend" style="margin-top:10px"><span class="ic">📨</span><span>שליחת הביקורת (+5 נקודות)</span></button>
+    <textarea id="revText" rows="3" data-i18n-ph="rev.textPh" placeholder="אפשר גם לכתוב כמה מילים… (או להקליט בדף המפה)" style="margin-top:10px"></textarea>
+    <button class="aam-btn" id="revSend" style="margin-top:10px"><span class="ic" aria-hidden="true">📨</span><span data-i18n="rev.send">שליחת הביקורת (+5 נקודות)</span></button>
   </div>
 
   <!-- the community feed -->
   <div class="card">
-    <h3 style="margin:4px 0 8px">מה אחרים אומרים</h3>
-    <div id="feedNote" class="muted"></div>
+    <h3 style="margin:4px 0 8px" data-i18n="rev.feed">מה אחרים אומרים</h3>
+    <div id="feedNote" class="muted" aria-live="polite"></div>
     <div id="feed"></div>
   </div>
 </div>
 
+<script src="/js/i18n.js"></script>
 <script src="/js/app.js"></script>
 <script src="/js/sound.js"></script>
 <script src="/js/fx.js"></script>

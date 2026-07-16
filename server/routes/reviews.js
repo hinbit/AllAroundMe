@@ -23,14 +23,21 @@ router.post('/reviews', async (req, res) => {
   }
   if (!overall && !domains) return res.status(400).json({ error: 'נדרש דירוג כוכבים או תחומים' });
 
+  // "verified visit": the reviewer actually contacted this doctor through the
+  // app (chosen_doctors rows are only created by the contact buttons on the map)
+  const chosen = await queryOne(
+    'SELECT id FROM chosen_doctors WHERE uid = ? AND entity_name = ?', [uid, name]
+  );
+
   const r = await query(
-    `INSERT INTO reviews (uid, entity_id, entity_name, overall_stars, domains, text, voice_transcript)
-     VALUES (?,?,?,?,?,?,?)`,
+    `INSERT INTO reviews (uid, entity_id, entity_name, overall_stars, domains, text, voice_transcript, verified_visit)
+     VALUES (?,?,?,?,?,?,?,?)`,
     [
       uid, parseInt(b.entity_id, 10) || null, name, overall,
       domains ? JSON.stringify(domains) : null,
       String(b.text || '').slice(0, 4000) || null,
       String(b.voice_transcript || '').slice(0, 4000) || null,
+      chosen ? 1 : 0,
     ]
   );
   await query('UPDATE chosen_doctors SET rated = 1 WHERE uid = ? AND entity_name = ?', [uid, name]);
@@ -38,7 +45,27 @@ router.post('/reviews', async (req, res) => {
     'UPDATE profiles SET reviews_given = reviews_given + 1, points = points + 5, allow_reviews = 1 WHERE uid = ?',
     [uid]
   );
-  res.json({ ok: true, review_id: r.insertId, points_earned: 5 });
+  res.json({ ok: true, review_id: r.insertId, points_earned: 5, verified_visit: !!chosen });
+});
+
+// POST /api/reviews/:id/flag {uid, reason} — community abuse report.
+// Three distinct reporters auto-hide the review pending the doctor/moderation.
+router.post('/reviews/:id/flag', async (req, res) => {
+  const reviewId = parseInt(req.params.id, 10);
+  const uid = String(req.body?.uid || '').slice(0, 24);
+  if (!reviewId || !uid) return res.status(400).json({ error: 'חסרים פרטים' });
+  const review = await queryOne('SELECT id, uid, status FROM reviews WHERE id = ?', [reviewId]);
+  if (!review) return res.status(404).json({ error: 'הביקורת לא נמצאה' });
+  if (review.uid === uid) return res.status(400).json({ error: 'אי אפשר לדווח על ביקורת של עצמך' });
+  await query(
+    'INSERT IGNORE INTO review_flags (review_id, uid, reason) VALUES (?,?,?)',
+    [reviewId, uid, String(req.body?.reason || '').slice(0, 300) || null]
+  );
+  const flags = await queryOne('SELECT COUNT(*) AS n FROM review_flags WHERE review_id = ?', [reviewId]);
+  if (Number(flags.n) >= 3 && review.status === 'visible') {
+    await query(`UPDATE reviews SET status = 'flagged' WHERE id = ?`, [reviewId]);
+  }
+  res.json({ ok: true, flags: Number(flags.n), hidden: Number(flags.n) >= 3 });
 });
 
 // GET /api/reviews/feed?uid= — what this user is entitled to see.
@@ -68,7 +95,8 @@ router.get('/reviews/feed', async (req, res) => {
 
   if (given < 3) {
     const rows = await query(
-      `SELECT id, entity_name, overall_stars, domains, text, created_at
+      `SELECT id, entity_name, overall_stars, domains, text, created_at,
+              verified_visit, reply_text, reply_doctor_name, reply_at
          FROM reviews WHERE status = 'visible' AND uid <> ? ORDER BY RAND() LIMIT 4`,
       [uid]
     );
@@ -78,6 +106,7 @@ router.get('/reviews/feed', async (req, res) => {
   // daily top: highest rated (overall stars + meta-review stars), recent first
   const rows = await query(
     `SELECT r.id, r.entity_name, r.overall_stars, r.domains, r.text, r.created_at,
+            r.verified_visit, r.reply_text, r.reply_doctor_name, r.reply_at,
             COALESCE(r.overall_stars, 3) + COALESCE((SELECT AVG(rr.stars) FROM review_reviews rr WHERE rr.review_id = r.id), 0) AS score
        FROM reviews r WHERE r.status = 'visible'
       ORDER BY score DESC, r.created_at DESC LIMIT 20`
@@ -99,7 +128,8 @@ router.get('/reviews/entity', async (req, res) => {
     return res.json({ mode: 'locked', count: Number(agg.n), avg_stars: agg.avg_stars ? Number(agg.avg_stars).toFixed(1) : null, reviews: [] });
   }
   const rows = await query(
-    `SELECT id, entity_name, overall_stars, domains, text, created_at
+    `SELECT id, entity_name, overall_stars, domains, text, created_at,
+            verified_visit, reply_text, reply_doctor_name, reply_at
        FROM reviews WHERE entity_name = ? AND status = 'visible' ORDER BY created_at DESC LIMIT 20`,
     [name]
   );

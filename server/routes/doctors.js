@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import { query, queryOne } from '../db.js';
 import { signDoctorToken, requireDoctor, scopedDoctorIds } from '../middleware/auth.js';
 import { config } from '../env.js';
+import { enqueueRunDelivery, dispatchDueOutbox, normalizePhone } from '../services/whatsapp.js';
+import { sendDigest } from '../services/digest.js';
 
 const router = express.Router();
 
@@ -36,7 +38,13 @@ router.get('/me', async (req, res) => {
        JOIN doctors d ON d.id = ds.owner_doctor_id
       WHERE ds.target_doctor_id = ? AND ds.gdpr_consent = 1`, [req.doctor.id]
   );
-  res.json({ doctor: req.doctor, scope_doctor_ids: ids, linked_doctors: linked, shared_with_me: sharedWithMe });
+  const settings = await queryOne(
+    'SELECT phone, digest_enabled, last_digest_at FROM doctors WHERE id = ?', [req.doctor.id]
+  );
+  res.json({
+    doctor: req.doctor, scope_doctor_ids: ids, linked_doctors: linked, shared_with_me: sharedWithMe,
+    settings: { phone: settings?.phone || null, digest_enabled: !!settings?.digest_enabled, last_digest_at: settings?.last_digest_at || null },
+  });
 });
 
 // -------------------------------------------------------- questionnaires ----
@@ -190,7 +198,14 @@ router.post('/questionnaires/:id/issue', async (req, res) => {
   );
   payload.run_id = run.insertId;
   await query('UPDATE questionnaire_runs SET payload = ? WHERE id = ?', [JSON.stringify(payload), run.insertId]);
-  res.json({ ok: true, run_id: run.insertId, payload });
+
+  // hand delivery to the built-in engine: one outbox row per scheduled send
+  // (immediately when there's no schedule); due rows go out on the next tick
+  const runRow = await queryOne('SELECT * FROM questionnaire_runs WHERE id = ?', [run.insertId]);
+  const enqueued = await enqueueRunDelivery(runRow, payload);
+  setImmediate(() => dispatchDueOutbox().catch((e) => console.error('[allaroundme] dispatch:', e.message)));
+
+  res.json({ ok: true, run_id: run.insertId, enqueued_sends: enqueued, delivery_mode: config.whatsapp.mode, payload });
 });
 
 // GET /:id/runs — runs of one questionnaire.
@@ -286,6 +301,71 @@ router.post('/questionnaires/:id/collaborators', async (req, res) => {
     [q.id, docId, role]
   );
   res.json({ ok: true });
+});
+
+// -------------------------------------------------- reviews about me --------
+// GET /reviews — reviews on any doctor in my scope (incl. flagged, so the
+// doctor sees what the community reported), with flag counts.
+router.get('/reviews', async (req, res) => {
+  const ids = await scopedDoctorIds(req.doctor, 'reports');
+  const names = (await query(
+    `SELECT name FROM doctors WHERE id IN (${ids.map(() => '?').join(',')})`, ids
+  )).map((r) => r.name);
+  const rows = await query(
+    `SELECT r.id, r.entity_name, r.overall_stars, r.domains, r.text, r.status,
+            r.verified_visit, r.reply_text, r.reply_doctor_name, r.reply_at, r.created_at,
+            (SELECT COUNT(*) FROM review_flags f WHERE f.review_id = r.id) AS flags
+       FROM reviews r WHERE r.entity_name IN (${names.map(() => '?').join(',')})
+      ORDER BY r.created_at DESC LIMIT 100`,
+    names
+  );
+  for (const r of rows) r.domains = typeof r.domains === 'string' ? JSON.parse(r.domains) : r.domains;
+  res.json({ names, reviews: rows });
+});
+
+// POST /reviews/:id/reply {text} — the doctor's right-of-reply, shown with the review.
+router.post('/reviews/:id/reply', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const text = String(req.body?.text || '').trim().slice(0, 2000);
+  if (!id || !text) return res.status(400).json({ error: 'חסר טקסט תגובה' });
+  const review = await queryOne('SELECT id, entity_name FROM reviews WHERE id = ?', [id]);
+  if (!review) return res.status(404).json({ error: 'הביקורת לא נמצאה' });
+  const ids = await scopedDoctorIds(req.doctor, 'reports');
+  const owner = await queryOne(
+    `SELECT id FROM doctors WHERE name = ? AND id IN (${ids.map(() => '?').join(',')})`,
+    [review.entity_name, ...ids]
+  );
+  if (!owner) return res.status(403).json({ error: 'אפשר להגיב רק על ביקורות של רופאים בהרשאתך' });
+  await query(
+    'UPDATE reviews SET reply_text = ?, reply_doctor_name = ?, reply_at = NOW() WHERE id = ?',
+    [text, req.doctor.name, id]
+  );
+  res.json({ ok: true });
+});
+
+// ------------------------------------------------------ digest settings -----
+// PATCH /me {phone, digest_enabled} — WhatsApp number + on/off for the daily digest.
+router.patch('/me', async (req, res) => {
+  const sets = [], vals = [];
+  if ('phone' in (req.body || {})) {
+    const phone = req.body.phone ? normalizePhone(req.body.phone) : null;
+    if (req.body.phone && !phone) return res.status(400).json({ error: 'מספר טלפון לא תקין' });
+    sets.push('phone = ?'); vals.push(phone);
+  }
+  if ('digest_enabled' in (req.body || {})) {
+    sets.push('digest_enabled = ?'); vals.push(req.body.digest_enabled ? 1 : 0);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
+  await query(`UPDATE doctors SET ${sets.join(', ')} WHERE id = ?`, [...vals, req.doctor.id]);
+  const me = await queryOne('SELECT id, phone, digest_enabled FROM doctors WHERE id = ?', [req.doctor.id]);
+  res.json({ ok: true, phone: me.phone, digest_enabled: !!me.digest_enabled });
+});
+
+// POST /digest/preview — build + send my digest right now (also proves the channel).
+router.post('/digest/preview', async (req, res) => {
+  const doctor = await queryOne('SELECT * FROM doctors WHERE id = ?', [req.doctor.id]);
+  const result = await sendDigest(doctor, { force: true });
+  res.json({ ok: true, ...result });
 });
 
 // GET /doctors — directory for share/collaborator pickers.

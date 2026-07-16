@@ -15,7 +15,24 @@ CREATE TABLE IF NOT EXISTS profiles (
   points INT UNSIGNED NOT NULL DEFAULT 0,
   reviews_given INT UNSIGNED NOT NULL DEFAULT 0,
   skip_splash TINYINT(1) NOT NULL DEFAULT 0,
-  allow_reviews TINYINT(1) NOT NULL DEFAULT 0
+  allow_reviews TINYINT(1) NOT NULL DEFAULT 0,
+  phone VARCHAR(32) NULL,                -- verified WhatsApp number (claimed profile)
+  phone_verified_at DATETIME NULL,
+  ui_lang VARCHAR(8) NULL,               -- he / en / ar / ru
+  UNIQUE KEY uq_profile_phone (phone)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One-time codes for claiming a profile with a phone number (sent via WhatsApp).
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  phone VARCHAR(32) NOT NULL,
+  uid CHAR(24) NULL,
+  code CHAR(6) NOT NULL,
+  purpose VARCHAR(30) NOT NULL DEFAULT 'claim',
+  used TINYINT(1) NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_otp_phone (phone)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Excellence badges earned per profile.
@@ -112,10 +129,25 @@ CREATE TABLE IF NOT EXISTS reviews (
   domains JSON NULL,
   text TEXT NULL,
   voice_transcript TEXT NULL,
-  status ENUM('visible','hidden') NOT NULL DEFAULT 'visible',
+  status ENUM('visible','hidden','flagged') NOT NULL DEFAULT 'visible',
+  verified_visit TINYINT(1) NOT NULL DEFAULT 0,  -- reviewer actually contacted this doctor via the app
+  reply_text TEXT NULL,                          -- the doctor's right-of-reply
+  reply_doctor_name VARCHAR(190) NULL,
+  reply_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_reviews_entity (entity_name),
   KEY idx_reviews_uid (uid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Abuse flags on reviews; 3 distinct flags auto-hide the review pending moderation.
+CREATE TABLE IF NOT EXISTS review_flags (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  review_id INT UNSIGNED NOT NULL,
+  uid CHAR(24) NOT NULL,
+  reason VARCHAR(300) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_flag (review_id, uid),
+  CONSTRAINT fk_flag_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Review-on-review (ביקורת על ביקורת).
@@ -144,6 +176,9 @@ CREATE TABLE IF NOT EXISTS doctors (
   role ENUM('doctor','clinic_owner','trial_manager') NOT NULL DEFAULT 'doctor',
   specialty VARCHAR(190) NULL,
   alphon_entity_id INT UNSIGNED NULL,
+  phone VARCHAR(32) NULL,               -- WhatsApp for the daily digest
+  digest_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  last_digest_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -226,6 +261,43 @@ CREATE TABLE IF NOT EXISTS questionnaire_answers (
   answered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_ans_run (run_id),
   CONSTRAINT fk_ans_run FOREIGN KEY (run_id) REFERENCES questionnaire_runs(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ------------------------------------------------------- delivery engine ----
+
+-- Outgoing WhatsApp/email messages (questionnaire sends, OTP codes, digests).
+-- The scheduler dispatches due 'pending' rows through the configured transport
+-- (WHATSAPP_MODE: log / cloud / webhook — see server/services/whatsapp.js).
+CREATE TABLE IF NOT EXISTS wa_outbox (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kind ENUM('questionnaire','otp','digest','system') NOT NULL DEFAULT 'system',
+  channel ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
+  to_phone VARCHAR(32) NULL,
+  to_email VARCHAR(190) NULL,
+  body TEXT NULL,                       -- NULL for questionnaire rows: built from the run payload at send time
+  run_id INT UNSIGNED NULL,
+  due_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  status ENUM('pending','sent','failed','cancelled') NOT NULL DEFAULT 'pending',
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  mode VARCHAR(12) NULL,                -- transport that actually sent it
+  last_error VARCHAR(300) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_at DATETIME NULL,
+  KEY idx_outbox_due (status, due_at),
+  KEY idx_outbox_run (run_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One-question-at-a-time WhatsApp chat state per patient phone.
+CREATE TABLE IF NOT EXISTS wa_conversations (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  phone VARCHAR(32) NOT NULL,
+  run_id INT UNSIGNED NOT NULL,
+  question_pos INT NOT NULL DEFAULT 0,  -- position of the NEXT question in payload.questions
+  status ENUM('active','done','expired') NOT NULL DEFAULT 'active',
+  started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_conv_phone (phone, status),
+  CONSTRAINT fk_conv_run FOREIGN KEY (run_id) REFERENCES questionnaire_runs(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- GDPR-consented data sharing between doctors.
