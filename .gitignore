@@ -10,3 +10,4 @@ backups/*.sql.gz
 # See client/assets/audio/README.md
 client/assets/audio/*.mp3
 !client/assets/audio/sample-*.mp3
+!client/assets/audio/BBBB.mp3
