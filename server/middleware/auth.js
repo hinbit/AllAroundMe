@@ -22,12 +22,14 @@ export function requireDoctor(req, res, next) {
   }
 }
 
-// The set of doctor ids whose data this account may read:
+// Doctors this account *is responsible for* — himself plus the doctors under
+// his organisation:
 //   doctor        -> himself
 //   clinic_owner  -> himself + 'clinic' links
 //   trial_manager -> himself + 'trial' links
-// plus any doctor who shared data with him via data_shares (GDPR consent).
-export async function scopedDoctorIds(doctor, scope = 'reports') {
+// Deliberately excludes data_shares: a GDPR share grants sight of research
+// data, never the right to act or speak in the other doctor's name.
+export async function ownDoctorIds(doctor) {
   const ids = new Set([doctor.id]);
   if (doctor.role === 'clinic_owner' || doctor.role === 'trial_manager') {
     const linkType = doctor.role === 'clinic_owner' ? 'clinic' : 'trial';
@@ -37,6 +39,13 @@ export async function scopedDoctorIds(doctor, scope = 'reports') {
     );
     for (const r of rows) ids.add(r.doctor_id);
   }
+  return [...ids];
+}
+
+// The set of doctor ids whose data this account may READ: everyone in
+// ownDoctorIds plus any doctor who shared data with him under GDPR consent.
+export async function scopedDoctorIds(doctor, scope = 'reports') {
+  const ids = new Set(await ownDoctorIds(doctor));
   const shared = await query(
     `SELECT owner_doctor_id FROM data_shares
       WHERE target_doctor_id = ? AND gdpr_consent = 1 AND scope IN (?, 'all')`,

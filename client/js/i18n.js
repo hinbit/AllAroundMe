@@ -48,8 +48,8 @@
       dir: 'ltr', name: 'English',
       'brand.he': 'in Hebrew we call it Misaviv — all around',
       'menu.map': 'Map around me', 'menu.map.sub': 'Every medical service near you — from the live Eshkolot directory',
-      'menu.finder': 'Find a doctor by field', 'menu.finder.sub': 'Quick tree: specialty ← body area ← tags',
-      'menu.voice': 'Tell us what happened', 'menu.voice.sub': 'Voice note ← transcript ← AI advice ← doctors on the map',
+      'menu.finder': 'Find a doctor by field', 'menu.finder.sub': 'Quick tree: specialty → body area → tags',
+      'menu.voice': 'Tell us what happened', 'menu.voice.sub': 'Voice note → transcript → AI advice → doctors on the map',
       'menu.reviews': 'Doctor reviews', 'menu.reviews.sub': 'Rate the doctors you chose and see what others say',
       'menu.points': 'My points & badges', 'menu.doctor': 'Doctors sign-in', 'menu.doctor.sub': 'Questionnaires, reports, data sharing',
       'splash.skip': 'Skip ›', 'splash.never': 'Leave me alone — no more splash',
@@ -124,8 +124,8 @@
       dir: 'ltr', name: 'Русский',
       'brand.he': 'на иврите это называется Мисавив — вокруг',
       'menu.map': 'Карта вокруг меня', 'menu.map.sub': 'Все медицинские службы рядом — из живого справочника Эшколот',
-      'menu.finder': 'Найти врача по области', 'menu.finder.sub': 'Быстрое дерево: специальность ← часть тела ← теги',
-      'menu.voice': 'Расскажите, что случилось', 'menu.voice.sub': 'Голос ← расшифровка ← совет ИИ ← врачи на карте',
+      'menu.finder': 'Найти врача по области', 'menu.finder.sub': 'Быстрое дерево: специальность → часть тела → теги',
+      'menu.voice': 'Расскажите, что случилось', 'menu.voice.sub': 'Голос → расшифровка → совет ИИ → врачи на карте',
       'menu.reviews': 'Отзывы о врачах', 'menu.reviews.sub': 'Оцените выбранных врачей и читайте чужие отзывы',
       'menu.points': 'Мои баллы и значки', 'menu.doctor': 'Вход для врачей', 'menu.doctor.sub': 'Анкеты, отчёты, обмен данными',
       'splash.skip': 'Пропустить ›', 'splash.never': 'Оставьте меня — больше без заставки',
@@ -161,8 +161,11 @@
   };
 
   const LANGS = ['he', 'en', 'ar', 'ru'];
-  let lang = localStorage.getItem('aam_lang') || 'he';
+  // ?lang=en wins (shareable links, QR codes, testing) and is remembered
+  const forced = new URLSearchParams(location.search).get('lang');
+  let lang = (LANGS.includes(forced) && forced) || localStorage.getItem('aam_lang') || 'he';
   if (!LANGS.includes(lang)) lang = 'he';
+  if (forced && LANGS.includes(forced)) localStorage.setItem('aam_lang', forced);
 
   function t(key, vars) {
     let s = (DICT[lang] && DICT[lang][key]) || DICT.he[key] || key;

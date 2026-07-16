@@ -3,7 +3,7 @@
 html, body { margin: 0; padding: 0; }
 body {
   font-family: "Segoe UI", "Heebo", Arial, sans-serif;
-  direction: rtl;
+  /* direction follows <html dir> — he/ar are rtl, en/ru ltr (see js/i18n.js) */
   color: #123;
   min-height: 100vh;
   background: #fdfefe;
@@ -76,9 +76,12 @@ body {
 .eye-c.morphed .s-tail { opacity: 1; }
 #aam-splash .target { font-size: 1.2em; animation: aamPulse 1.6s ease-in-out infinite; display: inline-block; }
 @keyframes aamPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+/* the splash itself is always ltr (the english movie text); the skip buttons
+   follow the reader's language */
 #aam-splash .skip-row {
-  margin-top: auto; direction: rtl; display: flex; gap: 12px; justify-content: center;
+  margin-top: auto; direction: rtl; display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
 }
+html[dir="ltr"] #aam-splash .skip-row { direction: ltr; }
 #aam-splash .skip-row button {
   border: 1px solid #b9cddb; background: #fff; color: #33607f;
   padding: 10px 18px; border-radius: 22px; font-size: 15px; cursor: pointer;
@@ -95,7 +98,7 @@ body {
   display: flex; align-items: center; gap: 14px; width: 100%;
   border: 1px solid #d5e4ee; background: #ffffffee; color: #16344a;
   padding: 16px; margin: 10px 0; border-radius: 18px;
-  font-size: 18px; text-align: right; cursor: pointer; text-decoration: none;
+  font-size: 18px; text-align: start; cursor: pointer; text-decoration: none;
   box-shadow: 0 2px 10px rgba(30,80,120,.06);
   transition: transform .12s, box-shadow .12s;
 }

@@ -2,13 +2,15 @@
 // answers, new reviews about the doctor, abuse flags. Delivered by email
 // (SMTP) and/or WhatsApp; in dev everything lands in the server log.
 import { query, queryOne } from '../db.js';
-import { scopedDoctorIds } from '../middleware/auth.js';
+import { ownDoctorIds } from '../middleware/auth.js';
 import { sendWhatsApp } from './whatsapp.js';
 import { sendMail } from './mailer.js';
 
 export async function buildDigest(doctor) {
   const since = doctor.last_digest_at || new Date(Date.now() - 86400_000);
-  const ids = await scopedDoctorIds(doctor, 'reports');
+  // my own organisation only — a digest reports on your patients, not on
+  // colleagues who merely shared research data with you
+  const ids = await ownDoctorIds(doctor);
   const names = (await query(
     `SELECT name FROM doctors WHERE id IN (${ids.map(() => '?').join(',')})`, ids
   )).map((r) => r.name);

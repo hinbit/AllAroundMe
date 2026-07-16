@@ -1,7 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import { query, queryOne } from '../db.js';
-import { signDoctorToken, requireDoctor, scopedDoctorIds } from '../middleware/auth.js';
+import { signDoctorToken, requireDoctor, scopedDoctorIds, ownDoctorIds } from '../middleware/auth.js';
 import { config } from '../env.js';
 import { enqueueRunDelivery, dispatchDueOutbox, normalizePhone } from '../services/whatsapp.js';
 import { sendDigest } from '../services/digest.js';
@@ -304,10 +304,11 @@ router.post('/questionnaires/:id/collaborators', async (req, res) => {
 });
 
 // -------------------------------------------------- reviews about me --------
-// GET /reviews — reviews on any doctor in my scope (incl. flagged, so the
-// doctor sees what the community reported), with flag counts.
+// GET /reviews — reviews on me and on the doctors of my organisation (incl.
+// flagged ones, so the doctor sees what the community reported). Uses
+// ownDoctorIds, not data shares: a review inbox is not shareable research data.
 router.get('/reviews', async (req, res) => {
-  const ids = await scopedDoctorIds(req.doctor, 'reports');
+  const ids = await ownDoctorIds(req.doctor);
   const names = (await query(
     `SELECT name FROM doctors WHERE id IN (${ids.map(() => '?').join(',')})`, ids
   )).map((r) => r.name);
@@ -330,12 +331,13 @@ router.post('/reviews/:id/reply', async (req, res) => {
   if (!id || !text) return res.status(400).json({ error: 'חסר טקסט תגובה' });
   const review = await queryOne('SELECT id, entity_name FROM reviews WHERE id = ?', [id]);
   if (!review) return res.status(404).json({ error: 'הביקורת לא נמצאה' });
-  const ids = await scopedDoctorIds(req.doctor, 'reports');
+  // only the doctor herself or her clinic/trial owner may speak in her name
+  const ids = await ownDoctorIds(req.doctor);
   const owner = await queryOne(
     `SELECT id FROM doctors WHERE name = ? AND id IN (${ids.map(() => '?').join(',')})`,
     [review.entity_name, ...ids]
   );
-  if (!owner) return res.status(403).json({ error: 'אפשר להגיב רק על ביקורות של רופאים בהרשאתך' });
+  if (!owner) return res.status(403).json({ error: 'אפשר להגיב רק על ביקורות שלך או של המרפאה שלך' });
   await query(
     'UPDATE reviews SET reply_text = ?, reply_doctor_name = ?, reply_at = NOW() WHERE id = ?',
     [text, req.doctor.name, id]

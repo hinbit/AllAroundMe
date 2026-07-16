@@ -65,10 +65,22 @@
       const s = document.createElement('span');
       s.textContent = '★';
       if (i <= val) s.classList.add('on');
-      s.addEventListener('click', () => {
+      // each star is a real control: clickable, focusable, screen-reader labelled
+      s.setAttribute('role', 'radio');
+      s.setAttribute('aria-label', `${i}`);
+      s.setAttribute('aria-checked', String(i <= val));
+      s.tabIndex = 0;
+      const pick = () => {
         val = i;
-        [...container.children].forEach((el, j) => el.classList.toggle('on', j < i));
+        [...container.children].forEach((el, j) => {
+          el.classList.toggle('on', j < i);
+          el.setAttribute('aria-checked', String(j < i));
+        });
         onPick(i);
+      };
+      s.addEventListener('click', pick);
+      s.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
       });
       container.appendChild(s);
     }
@@ -80,9 +92,9 @@
     const list = (r && r.rate_prompt) || [];
     const box = $('#unratedList');
     if (!list.length) {
-      box.innerHTML = 'אין כרגע רופאים שממתינים לדירוג. בחרו רופא במפה 🎯 ואז חזרו לדרג.<br>' +
-        '<input type="text" id="freeName" placeholder="או: הקלידו שם רופא לדירוג חופשי" style="margin-top:8px">' +
-        '<button class="aam-btn" id="freeGo" style="margin-top:8px;padding:10px"><span>דרגו רופא ›</span></button>';
+      box.innerHTML = `${AAM_T('rev.none')}<br>` +
+        `<input type="text" id="freeName" placeholder="${AAM_T('rev.freePh')}" style="margin-top:8px">` +
+        `<button class="aam-btn" id="freeGo" style="margin-top:8px;padding:10px"><span>${AAM_T('rev.freeGo')}</span></button>`;
       $('#freeGo').addEventListener('click', () => {
         const name = $('#freeName').value.trim();
         if (name) openForm({ entity_name: name });
@@ -121,14 +133,20 @@
     AAM.track('review_form_open', d.entity_name);
   }
 
-  $('#modeSimple').addEventListener('click', () => {
-    $('#modeSimple').classList.add('on'); $('#modeDomains').classList.remove('on');
-    $('#simpleMode').style.display = 'block'; $('#domainsMode').style.display = 'none';
-  });
-  $('#modeDomains').addEventListener('click', () => {
-    $('#modeDomains').classList.add('on'); $('#modeSimple').classList.remove('on');
-    $('#domainsMode').style.display = 'block'; $('#simpleMode').style.display = 'none';
-  });
+  function setMode(detailed) {
+    $('#modeDomains').classList.toggle('on', detailed);
+    $('#modeSimple').classList.toggle('on', !detailed);
+    $('#modeDomains').setAttribute('aria-pressed', String(detailed));
+    $('#modeSimple').setAttribute('aria-pressed', String(!detailed));
+    $('#domainsMode').style.display = detailed ? 'block' : 'none';
+    $('#simpleMode').style.display = detailed ? 'none' : 'block';
+  }
+  for (const [el, detailed] of [[$('#modeSimple'), false], [$('#modeDomains'), true]]) {
+    el.addEventListener('click', () => setMode(detailed));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMode(detailed); }
+    });
+  }
 
   $('#revSend').addEventListener('click', async () => {
     if (!current) return;
@@ -140,9 +158,9 @@
     };
     if (detailed) {
       body.domains = [...domainStars].map(([name, stars]) => ({ name, stars }));
-      if (!body.domains.length) return alert('סמנו כוכבים לפחות בתחום אחד');
+      if (!body.domains.length) return alert(AAM_T('rev.domainsFirst'));
     } else {
-      if (!overall) return alert('סמנו כמה כוכבים');
+      if (!overall) return alert(AAM_T('rev.starsFirst'));
       body.overall_stars = overall;
     }
     const r = await fetch('/api/reviews', {
@@ -153,7 +171,7 @@
       $('#formBox').style.display = 'none';
       $('#revText').value = '';
       loadUnrated(); loadFeed();
-      toast('⭐ תודה! הביקורת נשמרה (+5 נקודות)');
+      toast(AAM_T('rev.sent') + (r.verified_visit ? ' ' + AAM_T('rev.verified') : ''));
     } else {
       alert((r && r.error) || 'השליחה נכשלה');
     }
@@ -162,6 +180,7 @@
   function toast(text) {
     const t = document.createElement('div');
     t.className = 'aam-badge-toast'; t.textContent = text;
+    t.setAttribute('role', 'status');
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 4100);
   }
@@ -171,9 +190,9 @@
     const d = await fetch('/api/reviews/feed?uid=' + encodeURIComponent(AAM.uid)).then((x) => x.json()).catch(() => null);
     if (!d) return;
     $('#feedNote').textContent =
-      d.mode === 'locked' ? d.message :
-      d.mode === 'random-few' ? `נתת ${d.given} ביקורות — בינתיים מוצגות כמה ביקורות אקראיות. מ-3 ביקורות נפתחות המובילות של כל יום.` :
-      '🏆 הביקורות המובילות של היום';
+      d.mode === 'locked' ? AAM_T('rev.locked') :
+      d.mode === 'random-few' ? AAM_T('rev.few', { n: d.given }) :
+      AAM_T('rev.top');
     const feed = $('#feed');
     feed.innerHTML = '';
     for (const rev of d.reviews || []) {
@@ -182,11 +201,14 @@
       const stars = rev.overall_stars ? '★'.repeat(rev.overall_stars) + '☆'.repeat(5 - rev.overall_stars) : '';
       const domains = (rev.domains || []).map((x) => `${x.name}: ${'★'.repeat(x.stars)}`).join(' · ');
       div.innerHTML = `<b>${rev.entity_name}</b> <span style="color:#f5a623">${stars}</span>
+        ${rev.verified_visit ? `<span class="verified-pill" title="הביקורת ניתנה אחרי פנייה אמיתית לרופא דרך האפליקציה">${AAM_T('rev.verified')}</span>` : ''}
         ${domains ? `<div class="muted">${domains}</div>` : ''}
         ${rev.text ? `<div>${rev.text}</div>` : ''}
-        <div class="muted" style="margin-top:6px">ביקורת על הביקורת:
-          <span class="stars" data-rid="${rev.id}" style="font-size:18px"></span>
-          <span>${rev.meta_reviews && rev.meta_reviews.count ? `(${rev.meta_reviews.count} דירוגים, ממוצע ${rev.meta_reviews.avg_stars})` : ''}</span>
+        ${rev.reply_text ? `<div class="doc-reply"><b>💬 ${AAM_T('rev.reply')} — ${rev.reply_doctor_name || ''}</b><div>${rev.reply_text}</div></div>` : ''}
+        <div class="muted" style="margin-top:6px">${AAM_T('rev.meta')}
+          <span class="stars" data-rid="${rev.id}" style="font-size:18px" role="radiogroup" aria-label="${AAM_T('rev.meta')}"></span>
+          <span>${rev.meta_reviews && rev.meta_reviews.count ? `(${rev.meta_reviews.count} · ${rev.meta_reviews.avg_stars})` : ''}</span>
+          <button class="flag-btn" data-flag="${rev.id}">${AAM_T('rev.flag')}</button>
         </div>`;
       feed.appendChild(div);
       const sr = div.querySelector('.stars');
@@ -195,11 +217,24 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ uid: AAM.uid, stars: v }),
         }).then((x) => x.json()).catch(() => null);
-        if (res && res.ok) toast('👍 הדירוג על הביקורת נשמר (+2 נקודות)');
+        if (res && res.ok) toast(AAM_T('rev.metaSaved'));
+        else if (res && res.error) toast(res.error);
+      });
+      // abuse report: 3 distinct reporters hide the review pending moderation
+      div.querySelector('[data-flag]').addEventListener('click', async () => {
+        const reason = prompt(AAM_T('rev.flagWhy')) ?? '';
+        const res = await fetch(`/api/reviews/${rev.id}/flag`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: AAM.uid, reason }),
+        }).then((x) => x.json()).catch(() => null);
+        if (res && res.ok) { AAM.track('review_flag', rev.entity_name); toast(AAM_T('rev.flagged')); if (res.hidden) loadFeed(); }
         else if (res && res.error) toast(res.error);
       });
     }
   }
+
+  // dynamic text isn't covered by data-i18n — re-render on a language switch
+  document.addEventListener('aam:lang', () => { loadUnrated(); loadFeed(); });
 
   loadUnrated();
   loadFeed();

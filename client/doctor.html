@@ -14,7 +14,7 @@
   .pill.super { background:#fdeeee; color:#a33; }
   pre.json { direction:ltr; text-align:left; background:#10222f; color:#cde8ff; border-radius:12px;
              padding:12px; font-size:12px; overflow-x:auto; max-height:340px; }
-  .qq { border-right: 3px solid #cfe0eb; padding-right:8px; margin:6px 0; }
+  .qq { border-inline-start: 3px solid #cfe0eb; padding-inline-start:8px; margin:6px 0; }
   .qq.super { border-color:#d98; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th, td { border-bottom:1px solid #e5eef4; padding:6px 4px; text-align:right; }
@@ -48,8 +48,10 @@
     <div class="tabs">
       <span class="chip on" data-tab="qs">📋 שאלונים</span>
       <span class="chip" data-tab="new">➕ שאלון חדש</span>
+      <span class="chip" data-tab="reviews">⭐ ביקורות עליי</span>
       <span class="chip" data-tab="shares">🤝 שיתופי מידע</span>
       <span class="chip" data-tab="analytics">📊 שימוש באפליקציה</span>
+      <span class="chip" data-tab="settings">⚙️ הגדרות</span>
     </div>
 
     <div id="tab-qs"></div>
@@ -82,8 +84,10 @@
       </div>
     </div>
 
+    <div id="tab-reviews" style="display:none"></div>
     <div id="tab-shares" style="display:none"></div>
     <div id="tab-analytics" style="display:none"></div>
+    <div id="tab-settings" style="display:none"></div>
   </div>
 </div>
 
@@ -156,13 +160,15 @@
   $$('.tabs .chip').forEach((c) => c.addEventListener('click', () => {
     $$('.tabs .chip').forEach((x) => x.classList.remove('on'));
     c.classList.add('on');
-    for (const t of ['qs', 'new', 'shares', 'analytics']) {
+    for (const t of ['qs', 'new', 'reviews', 'shares', 'analytics', 'settings']) {
       $('#tab-' + t).style.display = c.dataset.tab === t ? 'block' : 'none';
     }
     if (c.dataset.tab === 'qs') loadQuestionnaires();
     if (c.dataset.tab === 'new') initNewForm();
+    if (c.dataset.tab === 'reviews') loadMyReviews();
     if (c.dataset.tab === 'shares') loadShares();
     if (c.dataset.tab === 'analytics') loadAnalytics();
+    if (c.dataset.tab === 'settings') loadSettings();
   }));
 
   // ----------------------------------------------------- questionnaires ----
@@ -247,9 +253,13 @@
         });
         const own = j.payload.questions.filter((x) => x.source === 'own').length;
         const sup = j.payload.questions.length - own;
+        const MODE_HE = { log: 'מצב יומן (dev) — ההודעה נכתבת ללוג השרת', cloud: 'WhatsApp Cloud API', webhook: 'בוט חיצוני' };
         slot.querySelector('.isOut').innerHTML = `
           <div class="muted" style="margin-top:8px">הרצה #${j.run_id} · ${j.payload.questions.length} שאלות
-            (${own} שלך${sup ? ' + ' + sup + ' משאלוני-על' : ''}) · הוראות מוכנות לבוט:</div>
+            (${own} שלך${sup ? ' + ' + sup + ' משאלוני-על' : ''})</div>
+          <div class="muted">📤 נשלח אוטומטית: ${j.enqueued_sends} משלוחים מתוזמנים · ערוץ: ${MODE_HE[j.delivery_mode] || j.delivery_mode}
+            — המטופל/ת יענה/תענה שאלה-שאלה בצ'אט, והתשובות ייכנסו לדוח לבד.</div>
+          <div class="muted" style="margin-top:6px">אותן הוראות גם כ-JSON (לבוט חיצוני):</div>
           <pre class="json">${JSON.stringify(j.payload, null, 2).replace(/</g, '&lt;')}</pre>`;
       } catch (e) { slot.querySelector('.isOut').innerHTML = `<div class="muted">${e.message}</div>`; }
     };
@@ -376,6 +386,79 @@
       $$('.tabs .chip')[0].click();
     } catch (e) { $('#nqErr').textContent = e.message; }
   });
+
+  // -------------------------------------------------- reviews about me ----
+  // Every review on a doctor in my scope, with the right of reply. Flagged
+  // reviews are shown too (hidden from the public until moderated).
+  async function loadMyReviews() {
+    const box = $('#tab-reviews');
+    box.innerHTML = '<div class="card muted">טוען…</div>';
+    try {
+      const { names, reviews } = await api('/reviews');
+      box.innerHTML = `<div class="card">
+        <h3 style="margin:4px 0 8px">⭐ ביקורות עליי</h3>
+        <div class="muted">ביקורות על: ${names.join(', ')} · ✓ ביקור מאומת = המבקר/ת באמת פנה/תה אליך דרך האפליקציה</div>
+        ${reviews.length ? '' : '<div class="muted" style="margin-top:8px">עוד אין ביקורות</div>'}
+        <div id="revList"></div></div>`;
+      const list = $('#revList');
+      for (const r of reviews) {
+        const stars = r.overall_stars ? '★'.repeat(r.overall_stars) + '☆'.repeat(5 - r.overall_stars) : '';
+        const domains = (r.domains || []).map((x) => `${x.name}: ${'★'.repeat(x.stars)}`).join(' · ');
+        const d = document.createElement('div');
+        d.className = 'qq' + (r.status === 'flagged' ? ' super' : '');
+        d.innerHTML = `
+          <b>${r.entity_name}</b> <span style="color:#f5a623">${stars}</span>
+          ${r.verified_visit ? '<span class="verified-pill">✓ ביקור מאומת</span>' : ''}
+          ${r.status === 'flagged' ? `<span class="pill super">🚩 מוסתר — ${r.flags} דיווחים</span>` : (r.flags ? `<span class="pill">🚩 ${r.flags}</span>` : '')}
+          ${domains ? `<div class="muted">${domains}</div>` : ''}
+          ${r.text ? `<div>${r.text}</div>` : ''}
+          ${r.reply_text
+            ? `<div class="doc-reply"><b>💬 התגובה שלך</b><div>${r.reply_text}</div></div>`
+            : `<div style="margin-top:6px"><input type="text" class="rpText" placeholder="זכות תגובה — מה תרצה/י לענות?">
+               <button class="chip rpGo" style="margin-top:4px">💬 פרסום תגובה</button><span class="muted rpOut"></span></div>`}`;
+        list.appendChild(d);
+        const go = d.querySelector('.rpGo');
+        if (go) go.onclick = async () => {
+          try {
+            await api(`/reviews/${r.id}/reply`, { method: 'POST', body: { text: d.querySelector('.rpText').value } });
+            loadMyReviews();
+          } catch (e) { d.querySelector('.rpOut').textContent = ' ' + e.message; }
+        };
+      }
+    } catch (e) { box.innerHTML = `<div class="card muted">${e.message}</div>`; }
+  }
+
+  // ---------------------------------------------------------- settings ----
+  // WhatsApp number + the daily digest (new answers / reviews / flags).
+  async function loadSettings() {
+    const box = $('#tab-settings');
+    const s = (me && me.settings) || {};
+    box.innerHTML = `<div class="card">
+      <h3 style="margin:4px 0 8px">⚙️ הגדרות והתראות</h3>
+      <div class="muted">סיכום יומי: כמה תשובות חדשות התקבלו, ביקורות חדשות עליך ודיווחים — בוואטסאפ ובאימייל.</div>
+      <input type="tel" id="stPhone" placeholder="מספר וואטסאפ לסיכום (למשל 0501234567)" value="${s.phone || ''}" style="margin-top:8px">
+      <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:14px">
+        <input type="checkbox" id="stDigest" style="width:auto" ${s.digest_enabled ? 'checked' : ''}> לקבל סיכום יומי
+      </label>
+      <div class="muted" style="margin-top:4px">סיכום אחרון: ${s.last_digest_at ? new Date(s.last_digest_at).toLocaleString('he-IL') : 'עדיין לא נשלח'}</div>
+      <button class="chip" id="stSave" style="margin-top:8px">💾 שמירה</button>
+      <button class="chip" id="stTest" style="margin-top:8px">📨 שלח לי סיכום עכשיו</button>
+      <span class="muted" id="stOut"></span>
+    </div>`;
+    $('#stSave').onclick = async () => {
+      try {
+        const j = await api('/me', { method: 'PATCH', body: { phone: $('#stPhone').value, digest_enabled: $('#stDigest').checked } });
+        me.settings = { ...me.settings, phone: j.phone, digest_enabled: j.digest_enabled };
+        $('#stOut').textContent = ' ✓ נשמר';
+      } catch (e) { $('#stOut').textContent = ' ' + e.message; }
+    };
+    $('#stTest').onclick = async () => {
+      try {
+        const j = await api('/digest/preview', { method: 'POST' });
+        $('#stOut').textContent = ` ✓ נשלח (${(j.via || []).join(' + ') || 'log'}) · ${j.counts.answers} תשובות, ${j.counts.reviews} ביקורות`;
+      } catch (e) { $('#stOut').textContent = ' ' + e.message; }
+    };
+  }
 
   // ------------------------------------------------------------ shares ----
   async function loadShares() {
