@@ -28,19 +28,35 @@ Uses local MySQL. Reads `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`
 
 Recommended order: install deps -> create DB user/grants -> `db:init` -> `db:seed` -> `start`.
 
-## Companion app
+## Companion app (Eshkolot-alphon)
 
-**Eshkolot-alphon should be installed on the same VPS** — it provides `/api/public/nearby`,
-`/api/public/filters`, `/api/public/analyze` and `/api/public/tags-tree`. After installing both,
-set this app's `ESHKOLOT_API_URL` to the alphon's local port:
+The alphon provides `/api/public/nearby`, `/api/public/filters`, `/api/public/analyze` and
+`/api/public/tags-tree`. `ESHKOLOT_API_URL` accepts **either** form — both are tested:
 
 ```
+# A. alphon installed on this same VPS (preferred: no TLS hop, no public traffic)
 ESHKOLOT_API_URL='http://127.0.0.1:<eshkolot-PORT>/api'
+
+# B. an alphon that already runs elsewhere, over its public origin
+ESHKOLOT_API_URL='https://eshkolot.seach.co.il/api'
 ```
+
+Form B works because the proxy picks `http`/`https` from the URL (`server/services/upstream.js`)
+and sends the target's Host, so the alphon's nginx routes it correctly. Trade-offs: every map
+query then leaves the VPS and depends on that domain's TLS + uptime, and the alphon must be
+running a build that has `/api/public/tags-tree` (added for this app) — otherwise the tag finder
+silently falls back to `client/data/tags-fallback.json`.
 
 Voice analysis requires the alphon's `OPENAI_API_KEY` + ffmpeg (declared in the alphon's own
-contract). Without the alphon, this app still runs: health stays ok, the tag finder falls back
-to `client/data/tags-fallback.json`, and the map shows a friendly "no connection" message.
+contract). Without any alphon this app still runs: health stays ok, the tag finder uses the
+fallback tree, and the map shows a friendly "no connection" message.
+
+Note `GET /api/health` reports `eshkolot: true` from the alphon's `/health` only — it does not
+prove `/api/public/*` is reachable. After install, smoke-test the real path:
+
+```bash
+curl "http://127.0.0.1:<PORT>/api/public/filters"   # must return JSON, not an error page
+```
 
 ## Route hints
 

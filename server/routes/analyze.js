@@ -1,6 +1,6 @@
-import http from 'http';
 import { config } from '../env.js';
 import { query } from '../db.js';
+import { upstreamRequest, upstreamHeaders } from '../services/upstream.js';
 
 // Streams POST /api/public/analyze (multipart audio or urlencoded/JSON text)
 // to the alphon unchanged, captures the JSON response, and logs the full
@@ -13,10 +13,7 @@ export function analyzeProxy(req, res) {
   const source = req.query.source === 'text' ? 'text' : 'voice';
 
   const target = new URL(config.eshkolotApi + '/public/analyze');
-  const headers = { ...req.headers, host: target.host };
-  delete headers['accept-encoding'];
-
-  const up = http.request(target, { method: 'POST', headers }, (upRes) => {
+  const up = upstreamRequest(target, { method: 'POST', headers: upstreamHeaders(req.headers, target) }, (upRes) => {
     const chunks = [];
     upRes.on('data', (c) => chunks.push(c));
     upRes.on('end', () => {
@@ -43,7 +40,8 @@ export function analyzeProxy(req, res) {
       ).catch((e) => console.error('[allaroundme] transcript log failed:', e.message));
     });
   });
-  up.on('error', () => {
+  up.on('error', (err) => {
+    console.error(`[allaroundme] analyze upstream ${target.href} failed: ${err.message}`);
     if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ error: 'שרת אלפון אשכולות אינו זמין' }));
     query(

@@ -1,6 +1,6 @@
 import express from 'express';
-import http from 'http';
 import path from 'path';
+import { upstreamRequest, upstreamHeaders } from './services/upstream.js';
 import { config, CLIENT_DIR } from './env.js';
 import { ping } from './db.js';
 import trackRouter from './routes/track.js';
@@ -34,13 +34,12 @@ app.post('/api/public/analyze', analyzeProxy);
 
 app.use('/api/public', (req, res) => {
   const target = new URL(config.eshkolotApi + '/public' + req.url);
-  const headers = { ...req.headers, host: target.host };
-  delete headers['accept-encoding'];
-  const up = http.request(target, { method: req.method, headers }, (upRes) => {
+  const up = upstreamRequest(target, { method: req.method, headers: upstreamHeaders(req.headers, target) }, (upRes) => {
     res.writeHead(upRes.statusCode || 502, upRes.headers);
     upRes.pipe(res);
   });
-  up.on('error', () => {
+  up.on('error', (err) => {
+    console.error(`[allaroundme] upstream ${target.href} failed: ${err.message}`);
     if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ error: 'שרת אלפון אשכולות אינו זמין', upstream: config.eshkolotApi }));
   });
