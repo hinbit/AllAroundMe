@@ -3,3 +3,5 @@ node_modules/
 *.log
 .DS_Store
 backups/*.sql.gz
+# licensed audio ships with the deploy, not with the source (see client/assets/audio/README.md)
+client/assets/audio/*.mp3

@@ -58,7 +58,16 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'לא נמצא' }));
 
 // ---------------------------------------------------------------- client ----
 app.use(express.static(CLIENT_DIR, { extensions: ['html'] }));
-app.get('*', (req, res) => res.sendFile(path.join(CLIENT_DIR, 'index.html')));
+
+/* A request that names a file extension wants that file, not the app shell.
+   Answering those with index.html turned every missing asset into a 200 of HTML,
+   which reaches the browser as a corrupt image/audio/script instead of an honest
+   404 — hard to diagnose and impossible to feature-detect against. Only
+   extension-less paths (real routes) fall through to the SPA. */
+app.get('*', (req, res) => {
+  if (path.extname(req.path)) return res.status(404).send('Not found');
+  res.sendFile(path.join(CLIENT_DIR, 'index.html'));
+});
 
 app.listen(config.port, () => {
   console.log(`[allaroundme] listening on http://127.0.0.1:${config.port}`);

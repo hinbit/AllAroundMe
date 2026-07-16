@@ -32,6 +32,9 @@
     <div id="aam-lang"></div>
   </div>
 
+  <button id="aam-music" class="music-toggle" hidden aria-pressed="false"
+          title="מוזיקת רקע" data-i18n-title="music.toggle">🔈</button>
+
   <div id="ratePromptBox"></div>
 
   <nav aria-label="תפריט ראשי">
@@ -365,8 +368,59 @@
     };
   }
 
+  // ------------------------------------------------------------ music ------
+  // Looping background theme. Three things make this behave rather than ambush:
+  // browsers refuse unmuted autoplay without a gesture (so we retry on the first
+  // one), reduced-motion users get silence, and the choice is remembered.
+  // Drop the track at the path below; with no file present this stays hidden.
+  const MUSIC_SRC = '/assets/audio/bg-loop.mp3';
+  let music = null;
+
+  function musicWanted() { return localStorage.getItem('aam_music') !== 'off'; }
+
+  function initMusic() {
+    if (AAM.reducedMotion) return;            // no motion, no sound
+    const btn = $('#aam-music');
+    music = new Audio(MUSIC_SRC);
+    music.loop = true;                        // cyclic
+    music.volume = 0.35;                      // background, not foreground
+    music.preload = 'auto';
+
+    // no track deployed (404 / unplayable) -> leave the UI clean and say nothing
+    music.addEventListener('error', () => { btn.hidden = true; music = null; });
+    music.addEventListener('canplay', () => { btn.hidden = false; });
+
+    // paint from the element's own events: play() marks the audio unpaused
+    // *before* it may reject, so asking .paused right after it lies to us.
+    const paint = () => {
+      const on = !!music && !music.paused;
+      btn.textContent = on ? '🔊' : '🔈';
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    };
+    music.addEventListener('play', paint);
+    music.addEventListener('pause', paint);
+
+    const tryPlay = () => music && music.play().catch(paint);
+
+    btn.addEventListener('click', () => {
+      if (!music) return;
+      if (music.paused) { localStorage.setItem('aam_music', 'on'); tryPlay(); AAM.track('music_on'); }
+      else { music.pause(); localStorage.setItem('aam_music', 'off'); AAM.track('music_off'); }
+    });
+
+    if (musicWanted()) {
+      tryPlay();
+      // autoplay blocked? the next tap/key anywhere is our opening
+      const kick = () => { if (musicWanted() && music && music.paused) tryPlay(); };
+      addEventListener('pointerdown', kick, { once: true });
+      addEventListener('keydown', kick, { once: true });
+    }
+    paint();
+  }
+
   // ------------------------------------------------------------- boot ------
   AAM.hello().then(() => {
+    initMusic();
     const forced = new URLSearchParams(location.search).get('splash'); // ?splash=full לבדיקה
     // prefers-reduced-motion: no movie, straight to the content (unless forced)
     const variant = forced || (AAM.reducedMotion ? 'none' : AAM.splash);

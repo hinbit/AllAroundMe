@@ -151,9 +151,12 @@
   .rec-ov.on{display:flex;}
   .rec-ov h2{margin:0; font-size:1.15em;}
   .rec-ov p{margin:0; color:var(--mut); font-size:.85em; line-height:1.5; max-width:300px;}
+  /* the bars are driven by the live mic signal (see meterLoop), never by a canned
+     animation — a bar that moves is proof the microphone is actually being heard */
   .bars{display:flex; gap:4px; align-items:center; height:64px;}
-  .bars i{width:5px; border-radius:3px; background:var(--acc); animation:bar 1s infinite ease-in-out;}
-  @keyframes bar{0%,100%{height:12px}50%{height:56px}}
+  .bars i{width:5px; height:6px; border-radius:3px; background:var(--acc); transition:height .08s linear;}
+  .bars.silent i{background:var(--mut);}
+  .rec-ov .warn{margin:0; font-size:.8em; color:var(--danger); min-height:1.2em; font-weight:600;}
   .timer{font-size:1.5em; font-variant-numeric:tabular-nums; font-weight:700;}
   .stopbtn{width:76px; height:76px; border-radius:50%; border:4px solid var(--danger); background:var(--card); cursor:pointer; display:grid; place-items:center;}
   .stopbtn::before{content:""; width:28px; height:28px; border-radius:6px; background:var(--danger);}
@@ -305,6 +308,7 @@
     <p id="recHint">ספר/י בקול מה הבעיה או הצורך. בסיום — ההקלטה תתומלל ותנותח ע"י AI.</p>
     <div class="bars" id="bars"></div>
     <div class="timer" id="timer">0:00</div>
+    <p class="warn" id="recWarn"></p>
     <button class="stopbtn" id="stopRec" title="סיום הקלטה"></button>
   </div>
   <div class="scrim" id="aiScrim"></div>
@@ -759,15 +763,70 @@ $("#enScrim").onclick = ()=> showEntity(null);
 /* ================= record → transcribe (server) → AI triage → tag search ================= */
 let recTimer = null, recSec = 0, mediaRec = null, recChunks = [], recStream = null;
 let AI = null; // last analysis: { text, recommendation, tags, urgent }
+const BAR_N = 18;
+const barEls = [];
 (function buildBars(){
   const bars = $("#bars");
-  for(let i=0;i<18;i++){
-    const b = document.createElement("i");
-    b.style.animationDelay = (i*0.07) + "s";
-    b.style.animationDuration = (0.7 + (i%5)*0.12) + "s";
-    bars.appendChild(b);
-  }
+  for(let i=0;i<BAR_N;i++){ const b = document.createElement("i"); bars.appendChild(b); barEls.push(b); }
 })();
+
+/* ---- live mic meter -------------------------------------------------------
+   The bars used to be a CSS keyframe animation: they danced identically whether
+   the microphone was working, muted, or absent — so a real failure looked exactly
+   like a success. They are now fed by an AnalyserNode on the actual capture
+   stream, which makes them an honest signal: movement means we hear you. If the
+   level stays flat for a few seconds we say so, instead of miming a recording. */
+let audioCtx = null, analyser = null, meterRaf = 0, sawSound = false;
+
+function startMeter(stream){
+  sawSound = false;
+  $("#recWarn").textContent = "";
+  $("#bars").classList.remove("silent");
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+    /* iOS hands back a suspended context unless it is resumed inside the gesture */
+    if(audioCtx.state === "suspended") audioCtx.resume().catch(()=>{});
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.75;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+  }catch(err){
+    /* meter is a nicety — never let it break the recording itself */
+    aamTrack("meter_failed", (err && err.name) || "Error");
+    analyser = null;
+    return;
+  }
+  const freq = new Uint8Array(analyser.frequencyBinCount);
+  const startedAt = Date.now();
+  (function meterLoop(){
+    if(!analyser) return;
+    meterRaf = requestAnimationFrame(meterLoop);
+    analyser.getByteFrequencyData(freq);
+    let peak = 0;
+    for(let i=0;i<BAR_N;i++){
+      const v = freq[Math.min(i, freq.length-1)] / 255;      // 0..1
+      if(v > peak) peak = v;
+      barEls[i].style.height = Math.max(6, Math.round(6 + v * 52)) + "px";
+    }
+    if(peak > 0.06) sawSound = true;
+    /* only complain once we have had a fair chance to hear something */
+    if(!sawSound && Date.now() - startedAt > 3000){
+      $("#bars").classList.add("silent");
+      $("#recWarn").textContent = "לא נקלט קול — בדקו שהמיקרופון אינו מושתק";
+    }else if(sawSound){
+      $("#bars").classList.remove("silent");
+      $("#recWarn").textContent = "";
+    }
+  })();
+}
+
+function stopMeter(){
+  cancelAnimationFrame(meterRaf);
+  meterRaf = 0; analyser = null;
+  if(audioCtx){ audioCtx.close().catch(()=>{}); audioCtx = null; }
+  barEls.forEach(b=> b.style.height = "6px");
+}
 $("#micBtn").onclick = startRecording;
 $("#stopRec").onclick = stopRecording;
 $("#aiScrim").onclick = ()=> aiModal(false);
@@ -800,13 +859,18 @@ async function startRecording(){
   mediaRec.ondataavailable = ev=>{ if(ev.data.size) recChunks.push(ev.data); };
   mediaRec.onstop = ()=>{
     recStream.getTracks().forEach(t=>t.stop());
+    stopMeter();
     const blob = new Blob(recChunks, { type: mediaRec.mimeType || "audio/webm" });
     if(blob.size < 1000) return textFallback("ההקלטה קצרה מדי — אפשר לכתוב במקום:");
+    aamTrack("rec_done", null, { bytes: blob.size, secs: recSec, type: blob.type, heard: sawSound });
     analyze({ blob });
   };
-  mediaRec.start();
+  /* a timeslice keeps chunks flowing, so a tab discarded mid-recording still
+     leaves us usable audio instead of one all-or-nothing blob at stop */
+  mediaRec.start(1000);
   $("#timer").textContent = "0:00";
   $("#recOv").classList.add("on");
+  startMeter(recStream);
   recTimer = setInterval(()=>{
     recSec++;
     $("#timer").textContent = Math.floor(recSec/60) + ":" + String(recSec%60).padStart(2,"0");
@@ -816,7 +880,8 @@ async function startRecording(){
 function stopRecording(){
   clearInterval(recTimer);
   $("#recOv").classList.remove("on");
-  if(mediaRec && mediaRec.state !== "inactive") mediaRec.stop();
+  if(mediaRec && mediaRec.state !== "inactive") mediaRec.stop();  /* onstop stops the meter */
+  else stopMeter();
 }
 
 /* Landing on ?rec=1 cannot open the microphone by itself: getUserMedia needs a
