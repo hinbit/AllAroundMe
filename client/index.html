@@ -405,7 +405,13 @@
 
     music = new Audio();
     music.volume = 0.35;                      // background, not foreground
-    music.preload = 'auto';
+    /* preload='none', not 'auto': audio never blocks rendering either way, but
+       'auto' pulls the whole track down the moment the page loads, competing
+       with the map tiles and API calls for a phone's bandwidth. With 'none' the
+       browser fetches only once we actually play, and then streams it in ranges
+       (express.static answers 206) — so playback starts after a few KB instead
+       of waiting for megabytes. A muted visitor downloads nothing at all. */
+    music.preload = 'none';
 
     // a track that fails to load must not kill the library — drop it and move on
     music.addEventListener('error', () => {
@@ -413,7 +419,10 @@
       if (!TRACKS.length) { btn.hidden = true; music = null; return; }
       if (musicWanted()) nextTrack();
     });
-    music.addEventListener('canplay', () => { btn.hidden = false; });
+    /* Show the toggle because the library has tracks — not on 'canplay', which
+       with preload='none' never fires for a muted visitor, leaving them no way
+       to turn the music back on. */
+    btn.hidden = false;
     music.addEventListener('ended', nextTrack);   // ended => another random one
 
     // paint from the element's own events: play() marks the audio unpaused
@@ -433,7 +442,10 @@
       if (!music || !TRACKS.length) return;
       lastTrack = pickTrack();
       music.src = MUSIC_DIR + TRACKS[lastTrack].file;
-      music.load();
+      /* Deliberately no music.load(): load() starts fetching immediately and
+         overrides preload='none', which had a muted visitor pulling the whole
+         track down for nothing. Setting src is enough — play() fetches when
+         (and only when) we actually want sound. */
       if (musicWanted()) tryPlay();
       const t = TRACKS[lastTrack];
       btn.title = (t.title || t.file) + (t.credit ? ' — ' + t.credit : '');

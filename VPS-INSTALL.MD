@@ -58,6 +58,23 @@ prove `/api/public/*` is reachable. After install, smoke-test the real path:
 curl "http://127.0.0.1:<PORT>/api/public/filters"   # must return JSON, not an error page
 ```
 
+## Basemap tiles (OpenStreetMap)
+
+The map draws OSM raster tiles under the radial view, straight from the browser to
+`tile.openstreetmap.org` — no key, no server config, no build step. Users can turn
+the streets off (the 🗺️ button or `M`); the choice lives in `localStorage` and the
+old grid backdrop returns. With no network the tiles simply fail and the map still
+works.
+
+Two things to know before this gets busy:
+
+- **OSM's tile servers run on donated capacity** and their usage policy is aimed at
+  light use. A high-traffic production site is expected to move to a paid provider
+  (Mapbox, MapTiler, Thunderforest) or self-hosted tiles. Swapping is a one-line
+  change to `TILE_URL` in `client/map.html` — but the attribution must stay.
+- **Attribution is required** wherever the tiles are shown and is rendered bottom
+  -left of the map. Keep it if you keep the tiles.
+
 ## Route hints
 
 Everything (static client + `/api`) is served from one upstream port, so no extra nginx locations are needed.

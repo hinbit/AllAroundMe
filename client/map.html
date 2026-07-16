@@ -107,6 +107,22 @@
   .gridbg{position:absolute; inset:0;
     background-image:linear-gradient(var(--grid) 1px, transparent 1px),linear-gradient(90deg, var(--grid) 1px, transparent 1px);
     background-size:11% 11%; opacity:.4;}
+  /* the grid is the fallback backdrop — hide it once real streets are under us */
+  .map:not(.nobase) .gridbg{display:none;}
+
+  #tileLayer{position:absolute; inset:0; overflow:hidden; z-index:0; pointer-events:none;}
+  /* Streets are context, not the subject: held back so the pins stay the thing
+     you read. A tile that 404s just leaves the map background showing. */
+  #tileLayer .tile{position:absolute; opacity:.85; filter:saturate(.72) contrast(.96); image-rendering:auto;}
+  #tileLayer .tile.failed{display:none;}
+  .map.nobase #tileLayer{display:none;}
+  #mapInner{position:absolute; inset:0; z-index:1;}
+
+  /* OSM requires visible attribution wherever its tiles are shown */
+  .attrib{position:absolute; bottom:2px; right:60px; z-index:7; font-size:9px; direction:ltr;
+          background:rgba(255,255,255,.72); border-radius:4px; padding:0 4px; color:#333;}
+  .attrib a{color:#16649e;}
+  .map.nobase .attrib{display:none;}
   .ring{position:absolute; border:1.5px dashed rgba(30,136,229,.45); border-radius:50%; pointer-events:none; transform:translate(-50%,-50%);}
   .ring b{position:absolute; top:-9px; right:14%; font-size:9.5px; color:#1E88E5; background:var(--card); border-radius:6px; padding:0 5px; font-weight:700;}
   .me{position:absolute; transform:translate(-50%,-50%); z-index:5; text-align:center; pointer-events:none;}
@@ -322,12 +338,15 @@
       <div class="map" id="mapView" tabindex="0" role="application"
            aria-label="מפת שירותי רפואה — מקשי + ו- לזום, מקשי חצים להזזה, פריסת שתי אצבעות לזום">
         <div class="gridbg"></div>
+        <div id="tileLayer" aria-hidden="true"></div>
         <div id="mapInner"></div>
+        <div class="attrib" id="attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></div>
         <div class="zoomlvl" id="zLvl" aria-hidden="true"></div>
         <div class="zoomctl">
           <button id="zIn"    title="התקרבות (+)" aria-label="התקרבות">＋</button>
           <button id="zOut"   title="התרחקות (−)" aria-label="התרחקות">−</button>
           <button id="zReset" title="מבט מלא (0)" aria-label="חזרה למבט מלא">⤢</button>
+          <button id="bmBtn"  title="רחובות (M)" aria-label="הצגת רחובות" aria-pressed="true">🗺️</button>
         </div>
       </div>
       <div class="list" id="listView"></div>
@@ -701,11 +720,111 @@ function project(){
   const cx = box.width / 2, cy = box.height / 2;
   const zx = px => (px - cx) * ZOOM + cx + PAN.x;
   const zy = py => (py - cy) * ZOOM + cy + PAN.y;
+  // inverses, so the basemap can ask which coordinates a screen edge sits at
+  const unzx = X => (X - cx - PAN.x) / ZOOM + cx;
+  const unzy = Y => (Y - cy - PAN.y) / ZOOM + cy;
   return {
     x: lng => zx(offX + ((lng - minLng) / spanLng) * usedW),
     y: lat => zy(offY + ((maxLat - lat) / spanLat) * usedH),
-    kmToPx: km => ((km * 1000) / metersPerPx) * ZOOM
+    lngAt: X => minLng + ((unzx(X) - offX) / usedW) * spanLng,
+    latAt: Y => maxLat - ((unzy(Y) - offY) / usedH) * spanLat,
+    kmToPx: km => ((km * 1000) / metersPerPx) * ZOOM,
+    metersPerPx: metersPerPx / ZOOM,
+    midLat, box
   };
+}
+
+/* ---- OSM basemap ----------------------------------------------------------
+   Streets under the radial view, so a pin sits on a junction instead of floating
+   on a grid. The pins keep their own projection; tiles are fitted to it.
+
+   The subtlety: this projection is linear in latitude, tiles are Web Mercator
+   (which is not). Rather than approximate, every tile is placed by running its
+   own corners through project(). Adjacent tiles share a corner latitude, so they
+   land on the same pixel and stay seamless — the only cost is a sub-pixel
+   vertical stretch that no one can see at these spans.
+
+   Tiles come from OpenStreetMap's public servers, whose tile usage policy is
+   meant for light use — a busy production site should move to a paid provider or
+   self-hosted tiles. Attribution is required and rendered bottom-left. */
+const TILE_URL = (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+const TILE_CACHE = new Map();      // key -> <img>, reused across renders
+let BASEMAP = localStorage.getItem("aam_basemap") !== "off";
+
+const lng2tile = (lng, z) => ((lng + 180) / 360) * 2 ** z;
+const lat2tile = (lat, z) => {
+  const r = lat * Math.PI / 180;
+  return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * 2 ** z;
+};
+const tile2lng = (x, z) => (x / 2 ** z) * 360 - 180;
+const tile2lat = (y, z) => Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / 2 ** z))) * 180 / Math.PI;
+
+function renderTiles(pr){
+  const layer = $("#tileLayer");
+  if(!BASEMAP){ layer.innerHTML = ""; TILE_CACHE.clear(); return; }
+
+  const W = pr.box.width, H = pr.box.height;
+  // Pick the tile zoom whose native resolution is closest to ours. 156543.03392
+  // is already metres *per pixel* at zoom 0 (a 256px tile spanning the globe),
+  // so it must not be divided by the tile size again — doing that asks for tiles
+  // 8 zoom levels too coarse, which load fine and render as a grey smear.
+  const res = 156543.03392 * Math.cos(pr.midLat * Math.PI / 180);
+  let z = Math.round(Math.log2(res / pr.metersPerPx));
+  z = Math.max(1, Math.min(19, z));
+
+  // which tiles cover the viewport, with one tile of bleed around it
+  const west = pr.lngAt(0), east = pr.lngAt(W);
+  const north = pr.latAt(0), south = pr.latAt(H);
+  const x0 = Math.floor(lng2tile(west, z)) - 1, x1 = Math.ceil(lng2tile(east, z)) + 1;
+  const y0 = Math.floor(lat2tile(north, z)) - 1, y1 = Math.ceil(lat2tile(south, z)) + 1;
+
+  const n = 2 ** z;
+  const need = new Set();
+  // a runaway loop here would hammer OSM; the bleed makes ~40 tiles typical
+  if((x1 - x0) * (y1 - y0) > 400) return;
+
+  for(let x = x0; x <= x1; x++){
+    for(let y = y0; y <= y1; y++){
+      if(y < 0 || y >= n) continue;              // above the pole / below it
+      const wx = ((x % n) + n) % n;              // wrap the antimeridian
+      const key = `${z}/${wx}/${y}`;
+      need.add(key);
+      let img = TILE_CACHE.get(key);
+      if(!img){
+        img = new Image();
+        img.className = "tile";
+        img.decoding = "async";
+        img.loading = "eager";
+        img.alt = "";
+        img.src = TILE_URL(z, wx, y);
+        img.addEventListener("error", ()=> img.classList.add("failed"), { once:true });
+        TILE_CACHE.set(key, img);
+        layer.appendChild(img);
+      }
+      // place by this tile's own corners — see the note above
+      const L = pr.x(tile2lng(x, z)),     R = pr.x(tile2lng(x + 1, z));
+      const T = pr.y(tile2lat(y, z)),     B = pr.y(tile2lat(y + 1, z));
+      img.style.left = L + "px";
+      img.style.top = T + "px";
+      // +1px kills the hairline seams that rounding leaves between tiles
+      img.style.width = (R - L + 1) + "px";
+      img.style.height = (B - T + 1) + "px";
+    }
+  }
+  // drop tiles we have scrolled away from, so the cache cannot grow forever
+  for(const [key, img] of TILE_CACHE){
+    if(!need.has(key)){ img.remove(); TILE_CACHE.delete(key); }
+  }
+}
+
+function setBasemap(on){
+  BASEMAP = on;
+  localStorage.setItem("aam_basemap", on ? "on" : "off");
+  $("#mapView").classList.toggle("nobase", !on);
+  $("#bmBtn").setAttribute("aria-pressed", on ? "true" : "false");
+  $("#bmBtn").textContent = on ? "🗺️" : "▦";
+  aamTrack("map_basemap", on ? "on" : "off");
+  if(VIEW === "map" && ENTITIES.length) renderMap();
 }
 
 function renderViews(){
@@ -735,6 +854,7 @@ const isDanger = e => /מיון|דחופה/.test((e.type||"") + (e.spec||""));
 function renderMap(){
   const inner = $("#mapInner"); inner.innerHTML = "";
   const pr = project();
+  renderTiles(pr);            // streets first — everything else sits on top
   // distance rings around the user
   [Math.round(A.km/2*10)/10, A.km].forEach(km=>{
     const r = document.createElement("div");
@@ -768,6 +888,8 @@ addEventListener("resize", ()=>{ if($("#mapScreen").classList.contains("on") && 
 
 /* ---- zoom input: buttons, keyboard, wheel, pinch + drag ------------------ */
 updateZoomButtons();   // "−" starts disabled: the opening view is already zoomed out
+setBasemap(BASEMAP);   // reflect the remembered choice in the button + classes
+$("#bmBtn").onclick  = ()=> setBasemap(!BASEMAP);
 $("#zIn").onclick    = ()=>{ zoomBy(1.5);  aamTrack("map_zoom", "in"); };
 $("#zOut").onclick   = ()=>{ zoomBy(1/1.5); aamTrack("map_zoom", "out"); };
 $("#zReset").onclick = zoomReset;
@@ -783,6 +905,7 @@ addEventListener("keydown", (ev)=>{
     case "+": case "=": zoomBy(1.5); break;
     case "-": case "_": zoomBy(1/1.5); break;
     case "0": zoomReset(); break;
+    case "m": case "M": setBasemap(!BASEMAP); break;
     case "ArrowUp":    PAN.y += step; applyZoom(); break;
     case "ArrowDown":  PAN.y -= step; applyZoom(); break;
     case "ArrowLeft":  PAN.x += step; applyZoom(); break;
