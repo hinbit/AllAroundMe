@@ -1,6 +1,3 @@
 [
-  { "file": "BBBB.mp3",         "title": "BBBB",             "credit": "project-provided track" },
-  { "file": "sample-calm.mp3",   "title": "Calm (sample)",   "credit": "synthesized placeholder" },
-  { "file": "sample-warm.mp3",   "title": "Warm (sample)",   "credit": "synthesized placeholder" },
-  { "file": "sample-bright.mp3", "title": "Bright (sample)", "credit": "synthesized placeholder" }
+  { "file": "BBBB.mp3", "title": "BBBB", "credit": "project-provided track" }
 ]
