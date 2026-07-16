@@ -378,7 +378,15 @@
   const MUSIC_DIR = '/assets/audio/';
   let music = null, TRACKS = [], lastTrack = -1, nextTrack = () => {};
 
-  function musicWanted() { return localStorage.getItem('aam_music') !== 'off'; }
+  /* prefers-reduced-motion is about motion, not sound, and there is no media
+     query for "no audio" — so it sets the *default* (start silent) rather than
+     removing the choice. It used to bail out of initMusic() entirely, which left
+     those users with no music and no button to ask for any. */
+  function musicWanted() {
+    const saved = localStorage.getItem('aam_music');
+    if (saved) return saved !== 'off';
+    return !AAM.reducedMotion;
+  }
 
   // avoid repeating the track we just played, unless it is the only one we have
   function pickTrack() {
@@ -398,7 +406,6 @@
   }
 
   async function initMusic() {
-    if (AAM.reducedMotion) return;            // no motion, no sound
     const btn = $('#aam-music');
     TRACKS = await loadTracks();
     if (!TRACKS.length) return;               // nothing to play, no toggle shown
