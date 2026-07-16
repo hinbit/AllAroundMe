@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 dotenv.config({ path: path.join(ROOT_DIR, '.env') });
+dotenv.config({ path: path.join(ROOT_DIR, '.env.credentials') });
 
 const e = process.env;
 

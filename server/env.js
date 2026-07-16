@@ -9,6 +9,7 @@ export const ROOT_DIR = path.resolve(__dirname, '..');
 export const CLIENT_DIR = path.join(ROOT_DIR, 'client');
 
 dotenv.config({ path: path.join(ROOT_DIR, '.env') });
+dotenv.config({ path: path.join(ROOT_DIR, '.env.credentials') });
 
 const e = process.env;
 
