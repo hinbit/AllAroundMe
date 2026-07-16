@@ -1,0 +1,25 @@
+{
+  "name": "allaroundme",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AllAroundMe (מסביב) - seach Medical: map + voice triage user app (round-table UI) fused with the Eshkolot alphon, plus doctor questionnaire platform",
+  "scripts": {
+    "start": "node server/index.js",
+    "prod": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "build": "node --check server/index.js",
+    "check": "node --check server/index.js",
+    "install:all": "npm install",
+    "db:init": "node scripts/db-init.js",
+    "db:seed": "node scripts/db-seed.js",
+    "db:migrate": "node scripts/db-init.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.0"
+  }
+}

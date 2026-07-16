@@ -1,0 +1,46 @@
+[
+  { "name": "רופא משפחה", "icon": "🩺", "children": [] },
+  { "name": "רופא ילדים", "icon": "🧒", "children": [] },
+  { "name": "אף אוזן גרון", "icon": "👂", "children": [] },
+  {
+    "name": "אורתופדיה", "icon": "🦴",
+    "children": [
+      { "name": "אורתופדיה - רגליים", "icon": "🦵", "children": [
+        { "name": "כף רגל", "children": [] },
+        { "name": "קרסול", "children": [] },
+        { "name": "ברך", "children": [] },
+        { "name": "ירך", "children": [] }
+      ] },
+      { "name": "אורתופדיה - גוף", "icon": "🫁", "children": [
+        { "name": "עמוד שדרה", "children": [] },
+        { "name": "אגן", "children": [] }
+      ] },
+      { "name": "אורתופדיה - ידיים", "icon": "💪", "children": [
+        { "name": "כף יד", "children": [] },
+        { "name": "מרפק", "children": [] },
+        { "name": "כתף", "children": [] }
+      ] },
+      { "name": "אורתופדיה - ראש וצוואר", "icon": "🧠", "children": [] },
+      { "name": "אורתופדיה - אחר", "children": [] }
+    ]
+  },
+  {
+    "name": "אונקולוגיה", "icon": "🎗️",
+    "children": [
+      { "name": "אונקולוגיה - כף רגל", "children": [] },
+      { "name": "אונקולוגיה - קרסול", "children": [] },
+      { "name": "סרקומה", "children": [] },
+      { "name": "אונקולוגיה - שד", "children": [] },
+      { "name": "אונקולוגיה - עור", "children": [] },
+      { "name": "המטו-אונקולוגיה", "children": [] }
+    ]
+  },
+  { "name": "פסיכיאטריה", "icon": "🧠", "children": [
+    { "name": "פסיכיאטריית ילדים ונוער", "children": [] },
+    { "name": "פסיכיאטריה מבוגרים", "children": [] }
+  ] },
+  { "name": "עיניים", "icon": "👁️", "children": [] },
+  { "name": "עור", "icon": "🧴", "children": [] },
+  { "name": "קרדיולוגיה", "icon": "❤️", "children": [] },
+  { "name": "נוירולוגיה", "icon": "⚡", "children": [] }
+]

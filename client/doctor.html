@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>כניסת רופאים · מסביב 🎯</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:12px 0; }
+  .tabs .chip { font-size:14px; }
+  .qrow { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .pill { font-size:12px; background:#eaf3f9; border-radius:10px; padding:2px 8px; color:#2a5878; }
+  .pill.super { background:#fdeeee; color:#a33; }
+  pre.json { direction:ltr; text-align:left; background:#10222f; color:#cde8ff; border-radius:12px;
+             padding:12px; font-size:12px; overflow-x:auto; max-height:340px; }
+  .qq { border-right: 3px solid #cfe0eb; padding-right:8px; margin:6px 0; }
+  .qq.super { border-color:#d98; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { border-bottom:1px solid #e5eef4; padding:6px 4px; text-align:right; }
+</style>
+</head>
+<body data-ambience="">
+<div class="aam-waves"></div>
+<div class="aam-page" style="max-width:760px">
+  <div class="aam-brand">
+    <div class="en">we are seach medical · doctors</div>
+    <h1>🧑‍⚕️ אזור הרופאים</h1>
+    <div class="muted"><a href="/">‹ חזרה למסביב</a></div>
+  </div>
+
+  <!-- login -->
+  <div class="card" id="loginBox">
+    <h3 style="margin:4px 0 10px">התחברות</h3>
+    <input type="email" id="loginEmail" placeholder="אימייל" value="">
+    <input type="password" id="loginPass" placeholder="סיסמה" style="margin-top:8px">
+    <button class="aam-btn" id="loginGo" style="margin-top:10px"><span class="ic">🔑</span><span>כניסה</span></button>
+    <div class="muted" id="loginErr"></div>
+    <div class="muted" style="margin-top:8px">חשבונות דמו: doctor@ / cohen@ / clinic@ / trial@ allaroundme.local · Doctor!2026</div>
+  </div>
+
+  <!-- app -->
+  <div id="app" style="display:none">
+    <div class="card qrow">
+      <div><b id="whoName"></b> <span class="pill" id="whoRole"></span><div class="muted" id="whoScope"></div></div>
+      <button class="chip" id="logout">יציאה</button>
+    </div>
+    <div class="tabs">
+      <span class="chip on" data-tab="qs">📋 שאלונים</span>
+      <span class="chip" data-tab="new">➕ שאלון חדש</span>
+      <span class="chip" data-tab="shares">🤝 שיתופי מידע</span>
+      <span class="chip" data-tab="analytics">📊 שימוש באפליקציה</span>
+    </div>
+
+    <div id="tab-qs"></div>
+
+    <div id="tab-new" style="display:none">
+      <div class="card">
+        <h3 style="margin:4px 0 10px">שאלון חדש</h3>
+        <input type="text" id="nqTitle" placeholder="כותרת השאלון">
+        <div style="display:flex;gap:8px;margin:8px 0">
+          <span class="chip on" id="nqKindReg">שאלון רגיל</span>
+          <span class="chip" id="nqKindSuper">שאלון-על (משולב באחרים)</span>
+        </div>
+        <div id="nqRegOnly">
+          <div class="muted">יעד: על מי מריצים את השאלון</div>
+          <input type="text" id="nqGroup" placeholder="קבוצת מטופלים (למשל: ניתוחי ברך)">
+          <input type="text" id="nqSymptom" placeholder="סימפטום (למשל: כאב ברך)" style="margin-top:6px">
+          <input type="text" id="nqTypes" placeholder="סוגים (מופרד בפסיק: אחרי ניתוח, מעקב)" style="margin-top:6px">
+          <div class="muted" style="margin-top:8px">תזמונים (ימים אחרי הביקור, מופרד בפסיק)</div>
+          <input type="text" id="nqSchedule" placeholder="5, 14" value="5, 14">
+          <div class="muted" style="margin-top:8px">Theme — אפשר לפי גיל או אינדיקציה</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap" id="nqThemes"></div>
+          <div class="muted" style="margin-top:8px">שאלוני-על לשילוב (כל אחד ≈20% מהשאלות)</div>
+          <div id="nqSupers"></div>
+        </div>
+        <div class="muted" style="margin-top:8px">שאלות — שאלה + מה מצפים לראות בתשובה</div>
+        <div id="nqQuestions"></div>
+        <button class="chip" id="nqAddQ">➕ הוספת שאלה</button>
+        <button class="aam-btn" id="nqSave" style="margin-top:10px"><span class="ic">💾</span><span>שמירת השאלון</span></button>
+        <div class="muted" id="nqErr"></div>
+      </div>
+    </div>
+
+    <div id="tab-shares" style="display:none"></div>
+    <div id="tab-analytics" style="display:none"></div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/sound.js"></script>
+<script src="/js/fx.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => [...document.querySelectorAll(s)];
+  let token = sessionStorage.getItem('aam_doc_token') || '';
+  let me = null;
+
+  const api = (path, opts = {}) =>
+    fetch('/api/doctor' + path, {
+      ...opts,
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opts.headers || {}) },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    }).then(async (r) => {
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401) { logout(); throw new Error(j.error || 'נדרשת התחברות'); }
+      if (!r.ok) throw new Error(j.error || ('שגיאה ' + r.status));
+      return j;
+    });
+
+  const ROLE_HE = { doctor: 'רופא/ה', clinic_owner: 'בעל/ת מרפאה', trial_manager: 'מנהל/ת ניסוי' };
+  const THEMES = [
+    { name: 'בהיר-מלווה', by: 'age', value: '60+' },
+    { name: 'צעיר-דינמי', by: 'age', value: 'עד 30' },
+    { name: 'רגוע-כהה', by: 'indication', value: 'אונקולוגיה' },
+    { name: 'קליני-נקי', by: 'indication', value: 'כללי' },
+  ];
+
+  // ------------------------------------------------------------- login ----
+  $('#loginGo').addEventListener('click', async () => {
+    try {
+      const j = await fetch('/api/doctor/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: $('#loginEmail').value, password: $('#loginPass').value }),
+      }).then((r) => r.json());
+      if (!j.token) throw new Error(j.error || 'התחברות נכשלה');
+      token = j.token;
+      sessionStorage.setItem('aam_doc_token', token);
+      AAM.track('doctor_login', j.doctor.role);
+      boot();
+    } catch (e) { $('#loginErr').textContent = e.message; }
+  });
+  function logout() {
+    token = ''; sessionStorage.removeItem('aam_doc_token');
+    $('#app').style.display = 'none'; $('#loginBox').style.display = 'block';
+  }
+  $('#logout').addEventListener('click', logout);
+
+  async function boot() {
+    try {
+      const j = await api('/me');
+      me = j;
+      $('#loginBox').style.display = 'none';
+      $('#app').style.display = 'block';
+      $('#whoName').textContent = j.doctor.name;
+      $('#whoRole').textContent = ROLE_HE[j.doctor.role] || j.doctor.role;
+      const extra = (j.linked_doctors || []).map((d) => d.name).join(', ');
+      $('#whoScope').textContent = extra ? 'מורשה גם לנתוני: ' + extra : 'מורשה לנתונים שלך בלבד';
+      loadQuestionnaires();
+    } catch (e) { /* stays on login */ }
+  }
+
+  // -------------------------------------------------------------- tabs ----
+  $$('.tabs .chip').forEach((c) => c.addEventListener('click', () => {
+    $$('.tabs .chip').forEach((x) => x.classList.remove('on'));
+    c.classList.add('on');
+    for (const t of ['qs', 'new', 'shares', 'analytics']) {
+      $('#tab-' + t).style.display = c.dataset.tab === t ? 'block' : 'none';
+    }
+    if (c.dataset.tab === 'qs') loadQuestionnaires();
+    if (c.dataset.tab === 'new') initNewForm();
+    if (c.dataset.tab === 'shares') loadShares();
+    if (c.dataset.tab === 'analytics') loadAnalytics();
+  }));
+
+  // ----------------------------------------------------- questionnaires ----
+  async function loadQuestionnaires() {
+    const box = $('#tab-qs');
+    box.innerHTML = '<div class="card muted">טוען…</div>';
+    try {
+      const { questionnaires } = await api('/questionnaires');
+      box.innerHTML = questionnaires.length ? '' : '<div class="card muted">אין עדיין שאלונים — צרו אחד ב"➕ שאלון חדש"</div>';
+      for (const q of questionnaires) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const target = q.target || {};
+        card.innerHTML = `
+          <div class="qrow">
+            <div>
+              <b>${q.title}</b>
+              <span class="pill ${q.kind === 'super' ? 'super' : ''}">${q.kind === 'super' ? 'שאלון-על' : 'שאלון'}</span>
+              <span class="pill">${q.runs} הרצות</span>
+              ${q.theme ? `<span class="pill">🎨 ${q.theme.name || ''} (${q.theme.by === 'age' ? 'גיל' : 'אינדיקציה'}: ${q.theme.value || ''})</span>` : ''}
+              <div class="muted">של ${q.doctor_name} · ${q.questions.length} שאלות
+                ${target.patient_group ? ' · קבוצה: ' + target.patient_group : ''}${target.symptom ? ' · סימפטום: ' + target.symptom : ''}
+                ${(q.supers || []).length ? ' · משולב עם: ' + q.supers.map((s) => s.title).join(', ') : ''}</div>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${q.kind === 'regular' ? `<button class="chip" data-act="issue" data-id="${q.id}">📨 הנפקה</button>` : ''}
+              <button class="chip" data-act="report" data-id="${q.id}">📊 דוח</button>
+              <button class="chip" data-act="collab" data-id="${q.id}">🤝 שיתוף</button>
+            </div>
+          </div>
+          <div id="qx-${q.id}"></div>`;
+        box.appendChild(card);
+      }
+      box.onclick = qAction;
+    } catch (e) { box.innerHTML = `<div class="card muted">${e.message}</div>`; }
+  }
+
+  let qActionBusy = false;
+  async function qAction(e) {
+    const btn = e.target.closest('[data-act]');
+    if (!btn || qActionBusy) return;
+    const id = btn.dataset.id, act = btn.dataset.act;
+    const slot = $('#qx-' + id);
+    if (slot.dataset.open === act) { slot.innerHTML = ''; slot.dataset.open = ''; return; }
+    slot.dataset.open = act;
+    qActionBusy = true;
+    try {
+      if (act === 'issue') renderIssue(slot, id);
+      else if (act === 'report') await renderReport(slot, id);
+      else if (act === 'collab') await renderCollab(slot, id);
+    } finally { qActionBusy = false; }
+  }
+
+  // issue: patient details -> frozen blended payload (JSON for the WhatsApp bot / email)
+  function renderIssue(slot, id) {
+    slot.innerHTML = `
+      <div style="margin-top:10px;border-top:1px solid #e5eef4;padding-top:10px">
+        <b>📨 הנפקת שאלון למטופל</b>
+        <input type="text" class="isName" placeholder="שם המטופל" style="margin-top:6px">
+        <input type="tel" class="isPhone" placeholder="וואטסאפ (למשל 0501234567)" style="margin-top:6px">
+        <input type="email" class="isEmail" placeholder="או אימייל" style="margin-top:6px">
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <span class="chip on isWa">💬 וואטסאפ</span><span class="chip isEm">📧 אימייל</span>
+        </div>
+        <button class="chip isGo" style="margin-top:8px">🚀 הנפק — קבל JSON לבוט</button>
+        <div class="isOut"></div>
+      </div>`;
+    const wa = slot.querySelector('.isWa'), em = slot.querySelector('.isEm');
+    let channel = 'whatsapp';
+    wa.onclick = () => { channel = 'whatsapp'; wa.classList.add('on'); em.classList.remove('on'); };
+    em.onclick = () => { channel = 'email'; em.classList.add('on'); wa.classList.remove('on'); };
+    slot.querySelector('.isGo').onclick = async () => {
+      try {
+        const j = await api(`/questionnaires/${id}/issue`, {
+          method: 'POST',
+          body: {
+            patient_name: slot.querySelector('.isName').value,
+            patient_phone: slot.querySelector('.isPhone').value,
+            patient_email: slot.querySelector('.isEmail').value,
+            channel,
+          },
+        });
+        const own = j.payload.questions.filter((x) => x.source === 'own').length;
+        const sup = j.payload.questions.length - own;
+        slot.querySelector('.isOut').innerHTML = `
+          <div class="muted" style="margin-top:8px">הרצה #${j.run_id} · ${j.payload.questions.length} שאלות
+            (${own} שלך${sup ? ' + ' + sup + ' משאלוני-על' : ''}) · הוראות מוכנות לבוט:</div>
+          <pre class="json">${JSON.stringify(j.payload, null, 2).replace(/</g, '&lt;')}</pre>`;
+      } catch (e) { slot.querySelector('.isOut').innerHTML = `<div class="muted">${e.message}</div>`; }
+    };
+  }
+
+  async function renderReport(slot, id) {
+    slot.innerHTML = '<div class="muted" style="margin-top:8px">טוען דוח…</div>';
+    try {
+      const j = await api(`/questionnaires/${id}/report`);
+      const t = j.totals;
+      slot.innerHTML = `
+        <div style="margin-top:10px;border-top:1px solid #e5eef4;padding-top:10px">
+          <b>📊 דוח: ${j.questionnaire.title}</b>
+          <div style="margin:6px 0"><span class="pill">${t.runs} הרצות</span>
+            <span class="pill">${t.answered} נענו</span> <span class="pill">${t.pending} ממתינים</span>
+            ${j.collaborators.length ? `<span class="pill">🤝 ${j.collaborators.map((c) => c.name).join(', ')}</span>` : ''}</div>
+          ${j.per_question.length ? `<table><tr><th>#</th><th>שאלה</th><th>תשובות</th><th>דוגמאות</th></tr>` +
+            j.per_question.map((p) => `<tr><td>${p.question_idx}</td><td>${p.question || ''}</td><td>${p.answers}</td>
+              <td class="muted">${(p.sample || []).slice(0, 3).join(' · ')}</td></tr>`).join('') + '</table>'
+            : '<div class="muted">עוד אין תשובות. אפשר לבדוק את הזרימה עם POST /api/hooks/answers</div>'}
+        </div>`;
+    } catch (e) { slot.innerHTML = `<div class="muted">${e.message}</div>`; }
+  }
+
+  async function renderCollab(slot, id) {
+    slot.innerHTML = '<div class="muted" style="margin-top:8px">טוען…</div>';
+    try {
+      const { doctors } = await api('/doctors');
+      slot.innerHTML = `
+        <div style="margin-top:10px;border-top:1px solid #e5eef4;padding-top:10px">
+          <b>🤝 הרצה משותפת / פרסום משותף</b>
+          <div class="muted">הוספת רופא/ה לשאלון — להגדלת קהל היעד ולפרסום מסמך תוצאות משותף</div>
+          <select class="clDoc" style="margin-top:6px">${doctors.map((d) => `<option value="${d.id}">${d.name} (${ROLE_HE[d.role] || d.role})</option>`).join('')}</select>
+          <select class="clRole" style="margin-top:6px">
+            <option value="co_runner">מריץ/ה שותפ/ה (co-runner)</option>
+            <option value="viewer">צפייה בדוח</option>
+            <option value="publisher">פרסום תוצאות משותף</option>
+          </select>
+          <button class="chip clGo" style="margin-top:8px">הוספה</button><span class="clOut muted"></span>
+        </div>`;
+      slot.querySelector('.clGo').onclick = async () => {
+        try {
+          await api(`/questionnaires/${id}/collaborators`, {
+            method: 'POST',
+            body: { doctor_id: slot.querySelector('.clDoc').value, role: slot.querySelector('.clRole').value },
+          });
+          slot.querySelector('.clOut').textContent = ' ✓ נוסף';
+        } catch (e) { slot.querySelector('.clOut').textContent = ' ' + e.message; }
+      };
+    } catch (e) { slot.innerHTML = `<div class="muted">${e.message}</div>`; }
+  }
+
+  // ---------------------------------------------------------- new form ----
+  let nqKind = 'regular', nqTheme = null, nqInit = false;
+  async function initNewForm() {
+    if (nqInit) return;
+    nqInit = true;
+    addQRow(); addQRow(); addQRow();
+    const tw = $('#nqThemes');
+    THEMES.forEach((t) => {
+      const c = document.createElement('span');
+      c.className = 'chip';
+      c.textContent = `${t.name} (${t.by === 'age' ? 'גיל ' : ''}${t.value})`;
+      c.onclick = () => { [...tw.children].forEach((x) => x.classList.remove('on')); c.classList.add('on'); nqTheme = t; };
+      tw.appendChild(c);
+    });
+    try {
+      const { questionnaires } = await api('/questionnaires');
+      const supers = questionnaires.filter((q) => q.kind === 'super');
+      $('#nqSupers').innerHTML = supers.length ? '' : '<span class="muted">אין שאלוני-על זמינים</span>';
+      supers.forEach((s) => {
+        const c = document.createElement('span');
+        c.className = 'chip'; c.dataset.sid = s.id;
+        c.textContent = `${s.title} (${s.questions.length} שאלות)`;
+        c.onclick = () => c.classList.toggle('on');
+        $('#nqSupers').appendChild(c);
+      });
+    } catch (e) { /* supers stay empty */ }
+  }
+  $('#nqKindReg').addEventListener('click', () => {
+    nqKind = 'regular';
+    $('#nqKindReg').classList.add('on'); $('#nqKindSuper').classList.remove('on');
+    $('#nqRegOnly').style.display = 'block';
+  });
+  $('#nqKindSuper').addEventListener('click', () => {
+    nqKind = 'super';
+    $('#nqKindSuper').classList.add('on'); $('#nqKindReg').classList.remove('on');
+    $('#nqRegOnly').style.display = 'none';
+  });
+  function addQRow() {
+    const d = document.createElement('div');
+    d.className = 'qq';
+    d.innerHTML = `<input type="text" class="qT" placeholder="השאלה">
+      <input type="text" class="qE" placeholder="מה מצפים לראות בתשובה" style="margin-top:4px">`;
+    $('#nqQuestions').appendChild(d);
+  }
+  $('#nqAddQ').addEventListener('click', addQRow);
+  $('#nqSave').addEventListener('click', async () => {
+    const questions = $$('#nqQuestions .qq').map((d) => ({
+      q: d.querySelector('.qT').value.trim(),
+      expected: d.querySelector('.qE').value.trim(),
+    })).filter((x) => x.q);
+    try {
+      await api('/questionnaires', {
+        method: 'POST',
+        body: {
+          title: $('#nqTitle').value.trim(),
+          kind: nqKind,
+          theme: nqTheme,
+          target: nqKind === 'regular' ? {
+            patient_group: $('#nqGroup').value.trim() || null,
+            symptom: $('#nqSymptom').value.trim() || null,
+            types: $('#nqTypes').value.split(',').map((s) => s.trim()).filter(Boolean),
+          } : null,
+          schedule: nqKind === 'regular'
+            ? $('#nqSchedule').value.split(',').map((s) => ({ after_days: parseInt(s.trim(), 10) })).filter((x) => x.after_days > 0)
+            : null,
+          questions,
+          super_ids: $$('#nqSupers .chip.on').map((c) => c.dataset.sid),
+        },
+      });
+      $('#nqErr').textContent = '✓ נשמר';
+      $('#nqTitle').value = '';
+      $$('.tabs .chip')[0].click();
+    } catch (e) { $('#nqErr').textContent = e.message; }
+  });
+
+  // ------------------------------------------------------------ shares ----
+  async function loadShares() {
+    const box = $('#tab-shares');
+    box.innerHTML = '<div class="card muted">טוען…</div>';
+    try {
+      const [{ given, received }, { doctors }] = await Promise.all([api('/shares'), api('/doctors')]);
+      box.innerHTML = `
+        <div class="card">
+          <h3 style="margin:4px 0 8px">🤝 שיתוף מידע עם רופאים (GDPR)</h3>
+          <div class="muted">שיתוף דוחות/שאלונים מחייב סימון הסכמה מפורשת. אפשר לבטל בכל רגע.</div>
+          <select id="shDoc" style="margin-top:8px">${doctors.map((d) => `<option value="${d.id}">${d.name}</option>`).join('')}</select>
+          <select id="shScope" style="margin-top:6px">
+            <option value="reports">דוחות בלבד</option>
+            <option value="questionnaires">שאלונים</option>
+            <option value="all">הכל</option>
+          </select>
+          <label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:14px">
+            <input type="checkbox" id="shGdpr" style="width:auto"> אני מאשר/ת שיתוף בהתאם ל-GDPR ולהסכמות המטופלים
+          </label>
+          <input type="text" id="shText" placeholder="נוסח ההסכמה / מטרת השיתוף" style="margin-top:6px">
+          <button class="chip" id="shGo" style="margin-top:8px">שיתוף</button> <span class="muted" id="shOut"></span>
+          <h4 style="margin:14px 0 4px">שיתופים שנתתי</h4>
+          ${given.length ? given.map((s) => `<div class="qrow"><span>→ ${s.target_name} <span class="pill">${s.scope}</span> <span class="muted">${s.consent_text || ''}</span></span><button class="chip" data-del="${s.id}">ביטול</button></div>`).join('') : '<div class="muted">אין</div>'}
+          <h4 style="margin:14px 0 4px">שיתופים שקיבלתי</h4>
+          ${received.length ? received.map((s) => `<div>← ${s.owner_name} <span class="pill">${s.scope}</span></div>`).join('') : '<div class="muted">אין</div>'}
+        </div>`;
+      $('#shGo').onclick = async () => {
+        try {
+          if (!$('#shGdpr').checked) throw new Error('נדרש אישור GDPR מפורש');
+          await api('/shares', {
+            method: 'POST',
+            body: {
+              target_doctor_id: $('#shDoc').value, scope: $('#shScope').value,
+              gdpr_consent: $('#shGdpr').checked, consent_text: $('#shText').value,
+            },
+          });
+          loadShares();
+        } catch (e) { $('#shOut').textContent = e.message; }
+      };
+      box.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+        await api('/shares/' + b.dataset.del, { method: 'DELETE' });
+        loadShares();
+      });
+    } catch (e) { box.innerHTML = `<div class="card muted">${e.message}</div>`; }
+  }
+
+  // --------------------------------------------------------- analytics ----
+  async function loadAnalytics() {
+    const box = $('#tab-analytics');
+    box.innerHTML = '<div class="card muted">טוען…</div>';
+    try {
+      const j = await api('/analytics');
+      box.innerHTML = `
+        <div class="card">
+          <h3 style="margin:4px 0 8px">📊 שימוש באפליקציה (30 יום)</h3>
+          <span class="pill">${j.sessions.total} סשנים</span>
+          <span class="pill">${j.sessions.unique_users} משתמשים</span>
+          <span class="pill">${j.sessions.pwa} התקנות PWA</span>
+          <div style="margin-top:8px">${j.top_events.map((t) => `<span class="chip">${t.type}: ${t.n}</span>`).join('')}</div>
+          <h4 style="margin:14px 0 4px">תמלולים אחרונים (מה שאלו ← מה הומלץ ← מה נעשה)</h4>
+          ${j.latest_transcripts.length ? j.latest_transcripts.map((t) => `
+            <div class="qq${t.urgent ? ' super' : ''}">
+              <b>${t.source === 'voice' ? '🎤' : '⌨️'}</b> ${(t.transcript || '(ללא תמלול)').slice(0, 160)}
+              <div class="muted">🤖 ${(t.ai_recommendation || '—').slice(0, 160)}</div>
+              <div class="muted">👣 ${t.action_taken || 'לא תועדה פעולה'}</div>
+            </div>`).join('') : '<div class="muted">אין עדיין תמלולים</div>'}
+        </div>`;
+    } catch (e) { box.innerHTML = `<div class="card muted">${e.message}</div>`; }
+  }
+
+  // ------------------------------------------------------------- boot -----
+  AAM.hello();
+  if (token) boot();
+})();
+</script>
+</body>
+</html>

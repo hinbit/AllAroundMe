@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>מסביב · גרסה חיה</title>
+<style>
+  /* ============ themes (?Theme=1|2|3) — same directions as map.html ============ */
+  body{--bg:#F7FAFB; --ink:#0E2A32; --mut:#5B7078; --card:#FFFFFF; --line:#DDE7E9; --acc:#0E7C86; --acc-ink:#FFFFFF;
+       --danger:#D64545; --chip:#E7F2F3; --ok:#1B8A5A; --r:12px; --fs:14px; --btn-pad:12px;
+       --map1:#DCEBE7; --map2:#EDF5F1; --grid:#C9DAD5;}
+  body.dir-2{--bg:#10151D; --ink:#F2F5F9; --mut:#9AA7B8; --card:#1A2230; --line:#2A3547; --acc:#FFB020; --acc-ink:#221A00;
+       --danger:#FF5A5F; --chip:#232E41; --ok:#3ECF8E; --r:16px; --fs:16px; --btn-pad:16px;
+       --map1:#17202E; --map2:#1D2836; --grid:#2A3547;}
+  body.dir-3{--bg:#FFF9F1; --ink:#3B322B; --mut:#8A7B6E; --card:#FFFFFF; --line:#EADFD0; --acc:#5B8C5A; --acc-ink:#FFFFFF;
+       --danger:#C75B4A; --chip:#F0EADF; --ok:#4C8C4A; --r:22px; --fs:17px; --btn-pad:16px;
+       --map1:#EAE2D3; --map2:#F4EFE4; --grid:#DECFB8;}
+
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; height:100%;}
+  body{font-family:-apple-system,"Segoe UI","Noto Sans Hebrew",Roboto,Arial,sans-serif;
+       background:var(--bg); color:var(--ink); font-size:var(--fs); display:flex; justify-content:center;}
+  #app{width:100%; max-width:520px; height:100dvh; display:flex; flex-direction:column; position:relative; overflow:hidden; background:var(--bg);}
+
+  header{padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 6px; flex:0 0 auto;}
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .logo{width:38px; height:38px; border-radius:12px; background:var(--acc); color:var(--acc-ink); display:grid; place-items:center; font-size:19px; flex:0 0 auto;}
+  .brand b{font-size:1.1em; display:block;}
+  .brand span{font-size:.74em; color:var(--mut); display:block;}
+  .loc{font-size:.8em; color:var(--mut); background:var(--chip); border:1px solid transparent; border-radius:999px; padding:6px 12px;
+       display:inline-flex; gap:6px; align-items:center; margin-top:9px; max-width:100%; font-family:inherit; cursor:pointer;}
+  .loc:active{border-color:var(--acc);}
+  .loc i{font-style:normal; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .loc .edit{color:var(--acc); font-weight:700; white-space:nowrap; flex:0 0 auto;}
+
+  .body{flex:1; min-height:0; overflow-y:auto; padding:8px 16px 30px;}
+  .q{display:none;}
+  .q.on{display:block; animation:fade .25s;}
+  @keyframes fade{from{opacity:0; transform:translateY(8px)}to{opacity:1; transform:none}}
+  .q h2{font-size:1.25em; margin:6px 0 4px;}
+  .q p{font-size:.86em; color:var(--mut); margin:0 0 14px; line-height:1.5;}
+  .back{border:none; background:none; color:var(--mut); font:inherit; font-size:.85em; cursor:pointer; padding:6px 0; display:none;}
+  .back.show{display:inline-block;}
+
+  .opts{display:grid; gap:9px;}
+  .opt{display:flex; align-items:center; gap:12px; width:100%; text-align:right; background:var(--card);
+       border:1px solid var(--line); border-radius:var(--r); padding:13px; font:inherit; font-size:.99em; cursor:pointer; color:var(--ink);}
+  .opt:active{transform:scale(.99);}
+  .opt .em{font-size:23px; width:34px; text-align:center; flex:0 0 auto;}
+  .opt .tx{flex:1; line-height:1.35;}
+  .opt .tx small{display:block; color:var(--mut); font-size:.8em;}
+  .opt.sel{border-color:var(--acc); box-shadow:0 0 0 1px var(--acc);}
+  .mic{margin-top:14px; width:100%; border:1.5px dashed var(--acc); background:transparent; color:var(--acc);
+       border-radius:var(--r); padding:13px; font:inherit; font-size:.95em; font-weight:700; cursor:pointer;}
+
+  .fldlbl{font-size:.82em; color:var(--mut); margin:16px 0 7px; font-weight:700;}
+  .chips{display:flex; gap:7px; flex-wrap:wrap;}
+  .chips.scroll{flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; padding-bottom:4px;}
+  .chips.scroll::-webkit-scrollbar{display:none;}
+  .chip{border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:8px 13px;
+        font:inherit; font-size:.86em; cursor:pointer; white-space:nowrap;}
+  .chip.on{background:var(--acc); border-color:var(--acc); color:var(--acc-ink); font-weight:700;}
+  .chip .n{font-size:.8em; opacity:.7;}
+  .go{margin-top:20px; width:100%; border:none; border-radius:var(--r); background:var(--acc); color:var(--acc-ink);
+      padding:15px; font:inherit; font-size:1.05em; font-weight:700; cursor:pointer;}
+  .go[disabled]{opacity:.5; cursor:not-allowed;}
+  .hint{font-size:.78em; color:var(--mut); margin-top:10px; line-height:1.5;}
+
+  /* ============ map screen ============ */
+  #mapScreen{display:none; position:absolute; inset:0; background:var(--bg); flex-direction:column; z-index:5;}
+  #mapScreen.on{display:flex;}
+  .mhead{padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 6px; display:flex; align-items:center; gap:10px; flex:0 0 auto;}
+  .mhead .mb{border:none; background:var(--chip); color:var(--ink); border-radius:999px; width:34px; height:34px; font-size:16px; cursor:pointer; flex:0 0 auto;}
+  .mhead .ttl{flex:1; min-width:0; line-height:1.25;}
+  .mhead .ttl b{display:block; font-size:.98em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .mhead .ttl span{display:block; font-size:.74em; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .subrow{display:flex; align-items:center; gap:6px; padding:2px 14px 8px; flex:0 0 auto; font-size:.78em; color:var(--mut);}
+  .vbtn{border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:999px; padding:5px 11px; font:inherit; font-size:1em; cursor:pointer;}
+  .vbtn.on{background:var(--ink); color:var(--bg); border-color:var(--ink);}
+  .subrow .sep{flex:1;}
+
+  main{flex:1; min-height:0; position:relative;}
+  .map{position:absolute; inset:0; overflow:hidden; background:var(--map1);}
+  .gridbg{position:absolute; inset:0;
+    background-image:linear-gradient(var(--grid) 1px, transparent 1px),linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:11% 11%; opacity:.4;}
+  .ring{position:absolute; border:1.5px dashed rgba(30,136,229,.45); border-radius:50%; pointer-events:none; transform:translate(-50%,-50%);}
+  .ring b{position:absolute; top:-9px; right:14%; font-size:9.5px; color:#1E88E5; background:var(--card); border-radius:6px; padding:0 5px; font-weight:700;}
+  .me{position:absolute; transform:translate(-50%,-50%); z-index:5; text-align:center; pointer-events:none;}
+  .me .dot{width:15px; height:15px; border-radius:50%; background:#1E88E5; border:3px solid #fff; margin:0 auto; animation:pulse 2s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 4px rgba(30,136,229,.3)}70%{box-shadow:0 0 0 14px rgba(30,136,229,0)}100%{box-shadow:0 0 0 4px rgba(30,136,229,0)}}
+  .me .lbl{font-size:10px; background:var(--card); color:var(--ink); border-radius:8px; padding:2px 7px; margin-top:4px; box-shadow:0 2px 6px rgba(0,0,0,.2); white-space:nowrap;}
+  .pin{position:absolute; transform:translate(-50%,-100%); z-index:4; cursor:pointer; text-align:center; border:none; background:none; padding:0; font:inherit;}
+  .pin .em{width:38px; height:38px; border-radius:50% 50% 50% 4px; background:var(--card); border:2px solid var(--acc);
+           display:grid; place-items:center; font-size:18px; box-shadow:0 4px 10px rgba(0,0,0,.25); margin:0 auto; position:relative;}
+  .pin .em .star{position:absolute; top:-8px; left:-5px; font-size:12px; filter:drop-shadow(0 1px 1px rgba(0,0,0,.3));}
+  .pin.danger .em{border-color:var(--danger);}
+  .pin.mini .em{width:26px; height:26px; font-size:13px; border-width:1.5px;}
+  .pin.mini .d{display:none;}
+  .pin .d{font-size:9.5px; background:var(--ink); color:var(--bg); border-radius:8px; padding:1px 6px; margin-top:2px; display:inline-block; white-space:nowrap;}
+  .mapmsg{position:absolute; inset:0; display:grid; place-items:center; z-index:6; text-align:center; color:var(--mut); font-size:.9em; padding:24px; line-height:1.7; background:color-mix(in srgb, var(--bg) 72%, transparent);}
+  .mapmsg .in{background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:18px 20px; max-width:320px;}
+
+  .list{position:absolute; inset:0; overflow-y:auto; padding:6px 14px 40px; display:none; background:var(--bg);}
+  .list.on{display:block;}
+  .row{width:100%; text-align:right; background:var(--card); border:1px solid var(--line); border-radius:var(--r);
+       padding:11px 12px; margin-bottom:8px; display:flex; gap:11px; align-items:center; cursor:pointer; font:inherit; color:var(--ink);}
+  .row .em{width:42px; height:42px; border-radius:13px; background:var(--chip); display:grid; place-items:center; font-size:21px; flex:0 0 auto;}
+  .row .tx{flex:1; min-width:0; line-height:1.35;}
+  .row .tx b{display:block; font-size:.93em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row .tx span{display:block; font-size:.75em; color:var(--mut); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .row .tm{text-align:center; flex:0 0 auto; line-height:1.2;}
+  .row .tm b{display:block; font-size:1em; color:var(--acc);}
+  .row .tm span{font-size:.68em; color:var(--mut);}
+
+  /* ============ modals ============ */
+  .scrim{position:absolute; inset:0; background:rgba(8,12,18,.5); z-index:20; display:none;}
+  .scrim.on{display:block;}
+  .modal{position:absolute; left:0; right:0; bottom:0; z-index:21; background:var(--card); color:var(--ink);
+         border-radius:calc(var(--r) + 8px) calc(var(--r) + 8px) 0 0; padding:10px 16px calc(env(safe-area-inset-bottom,0px) + 14px);
+         display:none; box-shadow:0 -12px 40px rgba(0,0,0,.35); max-height:min(92%, calc(100dvh - 16px));
+         overflow-y:auto; overscroll-behavior:contain;}
+  .modal.on{display:block;}
+  .grab{width:44px; height:5px; border-radius:3px; background:var(--line); margin:2px auto 12px;}
+  .btn{width:100%; border:none; border-radius:var(--r); padding:var(--btn-pad) 14px; font:inherit; font-size:1em; font-weight:700;
+       cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:8px; text-decoration:none; color:var(--ink);}
+  .btn.wa{background:#25D366; color:#0B3D2E;}
+  .btn.waze{background:#33CCFF; color:#053B4E;}
+  .btn.ghost{background:var(--chip); color:var(--ink);}
+  .btn[aria-disabled="true"]{opacity:.55; pointer-events:none;}
+
+  .sh-top{display:flex; gap:12px; align-items:flex-start;}
+  .sh-em{width:54px; height:54px; border-radius:16px; background:var(--chip); display:grid; place-items:center; font-size:27px; flex:0 0 auto; position:relative;}
+  .sh-em .star{position:absolute; top:-7px; right:-6px; font-size:16px;}
+  .sh-ttl{min-width:0;}
+  .sh-ttl b{font-size:1.1em; display:block;}
+  .sh-ttl .spec{font-size:.82em; color:var(--mut); display:block; margin-top:2px;}
+  .sh-badges{display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 4px;}
+  .badge{font-size:.76em; background:var(--chip); color:var(--ink); border-radius:999px; padding:5px 10px;}
+  .badge.ok{background:color-mix(in srgb,var(--acc) 16%, transparent); color:var(--acc); font-weight:700;}
+  .relrow{margin-top:10px;}
+  textarea.draft{width:100%; min-height:96px; margin-top:10px; border:1px dashed #9AD1A8; border-radius:var(--r); background:#F3FBF4; color:#1E5631;
+              font:inherit; font-size:.85em; line-height:1.55; padding:10px; resize:vertical;}
+  body.dir-2 textarea.draft{background:#15251B; border-color:#2E5C3B; color:#9FE3B4;}
+  input.friend{width:100%; margin-top:8px; border:1px solid var(--line); border-radius:var(--r); background:var(--bg); color:var(--ink);
+              font:inherit; font-size:.88em; padding:9px 11px; display:none;}
+  input.friend.show{display:block;}
+
+  /* record overlay */
+  .rec-ov{position:absolute; inset:0; z-index:30; background:var(--bg); display:none; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px; text-align:center;}
+  .rec-ov.on{display:flex;}
+  .rec-ov h2{margin:0; font-size:1.15em;}
+  .rec-ov p{margin:0; color:var(--mut); font-size:.85em; line-height:1.5; max-width:300px;}
+  .bars{display:flex; gap:4px; align-items:center; height:64px;}
+  .bars i{width:5px; border-radius:3px; background:var(--acc); animation:bar 1s infinite ease-in-out;}
+  @keyframes bar{0%,100%{height:12px}50%{height:56px}}
+  .timer{font-size:1.5em; font-variant-numeric:tabular-nums; font-weight:700;}
+  .stopbtn{width:76px; height:76px; border-radius:50%; border:4px solid var(--danger); background:var(--card); cursor:pointer; display:grid; place-items:center;}
+  .stopbtn::before{content:""; width:28px; height:28px; border-radius:6px; background:var(--danger);}
+  textarea.tr{width:100%; min-height:110px; border:1px solid var(--line); border-radius:var(--r); background:var(--bg); color:var(--ink);
+              font:inherit; font-size:.95em; line-height:1.55; padding:11px; resize:vertical;}
+  .airec{margin:0 14px 8px; padding:9px 12px; border-radius:var(--r); background:var(--card); border:1px solid var(--line);
+         font-size:.8em; line-height:1.5; display:flex; gap:8px; align-items:flex-start; flex:0 0 auto;}
+  .airec.urgent{border-color:var(--danger); box-shadow:0 0 0 1px var(--danger);}
+  .airec .x{border:none; background:none; color:var(--mut); font-size:1.1em; cursor:pointer; padding:0 2px; flex:0 0 auto;}
+  .aibox{margin-top:10px; font-size:.86em; line-height:1.55; background:var(--chip); border-radius:var(--r); padding:10px 12px;}
+  .aibox.urgent{background:color-mix(in srgb, var(--danger) 12%, transparent); border:1px solid var(--danger);}
+  .spin{width:34px; height:34px; border:3px solid var(--line); border-top-color:var(--acc); border-radius:50%; margin:14px auto; animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  input.txt{width:100%; border:1px solid var(--line); border-radius:var(--r); background:var(--bg); color:var(--ink);
+            font:inherit; font-size:.92em; padding:11px 12px;}
+  .locrow{width:100%; text-align:right; background:var(--bg); border:1px solid var(--line); border-radius:var(--r);
+          padding:11px 12px; margin-top:7px; font:inherit; font-size:.88em; color:var(--ink); cursor:pointer; line-height:1.4;}
+  .locrow small{display:block; color:var(--mut); font-size:.85em;}
+
+  /* ============ compact mode: short screens keep bottom buttons reachable ============ */
+  @media (max-height: 760px){
+    body{--fs:13px; --btn-pad:10px;}
+    header{padding-top:calc(env(safe-area-inset-top,0px) + 8px);}
+    .brand .logo{width:32px; height:32px; font-size:16px;}
+    .loc{margin-top:6px; padding:5px 10px;}
+    .q h2{font-size:1.15em; margin-top:2px;}
+    .q p{margin-bottom:10px;}
+    .opts{gap:7px;}
+    .opt{padding:9px 11px;}
+    .opt .em{font-size:20px; width:30px;}
+    .btn{margin-top:6px;}
+    .go{margin-top:12px; padding:12px;}
+    .mic{margin-top:10px; padding:11px;}
+    textarea.tr{min-height:72px;}
+    textarea.draft{min-height:60px;}
+    .sh-em{width:44px; height:44px; font-size:22px; border-radius:13px;}
+    .sh-badges{margin:8px 0 2px;}
+    .grab{margin-bottom:8px;}
+    .aibox{padding:8px 10px; margin-top:8px;}
+  }
+  @media (max-height: 600px){
+    body{--fs:12.5px;}
+    .opt .tx small{display:none;}
+    .brand span{display:none;}
+  }
+</style>
+<style>
+  /* AllAroundMe add-ons: press burst + sound widget (page keeps its own theme) */
+  .aam-burst{position:fixed;z-index:2000;width:14px;height:14px;pointer-events:none;border:2px solid rgba(200,40,40,.75);border-radius:50%;transform:translate(-50%,-50%);animation:aamBurst .55s ease-out forwards;}
+  .aam-burst-out{border-color:rgba(30,120,200,.6);animation-duration:.45s;}
+  @keyframes aamBurst{0%{opacity:.9;}100%{opacity:0;width:58px;height:58px;}}
+  .aam-press-gif{position:fixed;z-index:2000;width:64px;height:64px;pointer-events:none;transform:translate(-50%,-50%);border-radius:12px;animation:aamGifPop .6s ease-out forwards;}
+  @keyframes aamGifPop{0%{opacity:0;scale:.6;}20%{opacity:1;}100%{opacity:0;scale:1.15;}}
+  .aam-sound-widget{position:fixed;bottom:12px;left:12px;z-index:900;display:flex;align-items:center;gap:8px;direction:ltr;background:#ffffffe6;border:1px solid #d8e6ef;border-radius:24px;padding:6px 12px;box-shadow:0 2px 10px rgba(30,80,120,.12);}
+  .aam-sound-widget .aam-mute{border:0;background:none;font-size:20px;cursor:pointer;padding:2px;}
+  .aam-sound-widget .aam-vol{width:84px;accent-color:#16649e;}
+  .aam-badge-toast{position:fixed;top:14px;right:14px;z-index:1500;background:#16344a;color:#fff;border-radius:14px;padding:12px 16px;font-size:15px;box-shadow:0 4px 18px rgba(0,0,0,.25);animation:aamToast 4s forwards;}
+  @keyframes aamToast{0%{opacity:0;transform:translateY(-12px);}8%,85%{opacity:1;transform:none;}100%{opacity:0;}}
+</style>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+</head>
+<body>
+<div id="app">
+
+  <header id="wizHead">
+    <div class="brand">
+      <div class="logo">📍</div>
+      <div><b>מסביב</b><span>mesaviv.seach.co.il · שיח מדיקל · גרסה חיה</span></div>
+    </div>
+    <button class="loc" id="locBtn" title="החלפת מיקום">📡 <i id="locTxt">מאתר מיקום מדויק…</i> <span class="edit">שינוי ✏️</span></button>
+  </header>
+
+  <div class="body" id="wizBody">
+    <button class="back" id="back">→ חזרה</button>
+
+    <!-- Q1: what do you need -->
+    <section class="q on" id="q1">
+      <h2>מה את/ה צריך/ה עכשיו?</h2>
+      <p>בחרו מצב — או פשוט הקליטו מה קרה.</p>
+      <div class="opts">
+        <button class="opt" data-s="doctor"><span class="em">🩺</span><span class="tx">לאתר רופא באזור<small>לפי התמחות, קופת חולים ומרחק ממך — מתוך אלפון אשכולות</small></span></button>
+        <button class="opt" data-s="throat"><span class="em">🤒</span><span class="tx">מרגיש/ה לא טוב<small>כאב, חום, מחלה — נמצא רופא מתאים</small></span></button>
+        <button class="opt" data-s="stock"><span class="em">💊</span><span class="tx">צריך/ה תרופה<small>בתי מרקחת סביבך</small></span></button>
+        <button class="opt" data-s="fracture"><span class="em">🤕</span><span class="tx">פציעה או חבלה<small>מיון ורפואה דחופה</small></span></button>
+        <button class="opt" data-s="rash"><span class="em">🧒</span><span class="tx">משהו אצל ילד/ה<small>פריחה, חום — רופאי ילדים ועור</small></span></button>
+        <button class="opt" data-s="dental"><span class="em">🦷</span><span class="tx">כאב שיניים<small>מרפאות שיניים באזור</small></span></button>
+        <button class="opt" data-s="homecare"><span class="em">🏠</span><span class="tx">עזרה להורה מבוגר<small>אחות, פיזיותרפיה וגריאטריה עד הבית</small></span></button>
+        <button class="opt" data-s="tourist"><span class="em">🌍</span><span class="tx">English-speaking doctor<small>רופאים באנגלית, ביטוח נסיעות</small></span></button>
+      </div>
+      <button class="mic" id="micBtn">🎤 מסובך יותר? פשוט הקליטו מה קרה</button>
+    </section>
+
+    <!-- Q-doctor: specialty + fund + distance (only for "לאתר רופא באזור") -->
+    <section class="q" id="qDoc">
+      <h2>איזה רופא לחפש?</h2>
+      <p>ההתמחויות הראשיות מתוך אלפון אשכולות. בחירה בהתמחות ראשית כוללת גם את כל תתי־ההתמחויות שלה.</p>
+      <div class="fldlbl">התמחות ראשית</div>
+      <div class="chips" id="specChips"><span class="hint">טוען התמחויות מהאלפון…</span></div>
+      <div class="fldlbl">קופת חולים (לא חובה)</div>
+      <div class="chips" id="fundChips"><span class="hint">טוען…</span></div>
+      <div class="fldlbl">מרחק מהמיקום הנוכחי שלך</div>
+      <div class="chips" id="kmChips"></div>
+      <button class="go" id="docGo" disabled>הצג רופאים במפה ←</button>
+    </section>
+
+    <!-- Q2: how far -->
+    <section class="q" id="q2">
+      <h2>כמה רחוק מוכנים לנסוע?</h2>
+      <p>נסנן את המפה לפי זמן נסיעה ממך.</p>
+      <div class="opts">
+        <button class="opt" data-t="10"><span class="em">⚡</span><span class="tx">הכי קרוב שיש<small>עד 10 דקות נסיעה</small></span></button>
+        <button class="opt" data-t="20"><span class="em">🚗</span><span class="tx">סביר<small>עד 20 דקות נסיעה</small></span></button>
+        <button class="opt" data-t="45"><span class="em">🛣️</span><span class="tx">העיקר שיטפלו טוב<small>עד 45 דקות נסיעה</small></span></button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ map screen ============ -->
+  <div id="mapScreen">
+    <div class="mhead">
+      <button class="mb" id="mBack">→</button>
+      <div class="ttl" id="mTtl" style="cursor:pointer" title="החלפת מיקום"><b id="mTitle">מסביב</b><span id="mSub"></span></div>
+    </div>
+    <div class="airec" id="aiRecBar" style="display:none"></div>
+    <div class="subrow">
+      <span id="mCount"></span>
+      <span class="sep"></span>
+      <button class="vbtn on" id="vMap">🗺️ מפה</button>
+      <button class="vbtn" id="vList">☰ רשימה</button>
+    </div>
+    <main>
+      <div class="map" id="mapView">
+        <div class="gridbg"></div>
+        <div id="mapInner"></div>
+      </div>
+      <div class="list" id="listView"></div>
+      <div class="mapmsg" id="mapMsg" style="display:none"><div class="in" id="mapMsgTx"></div></div>
+    </main>
+  </div>
+
+  <!-- entity card -->
+  <div class="scrim" id="enScrim"></div>
+  <div class="modal" id="enModal"></div>
+
+  <!-- record overlay + AI analysis -->
+  <div class="rec-ov" id="recOv">
+    <h2>מקליט…</h2>
+    <p id="recHint">ספר/י בקול מה הבעיה או הצורך. בסיום — ההקלטה תתומלל ותנותח ע"י AI.</p>
+    <div class="bars" id="bars"></div>
+    <div class="timer" id="timer">0:00</div>
+    <button class="stopbtn" id="stopRec" title="סיום הקלטה"></button>
+  </div>
+  <div class="scrim" id="aiScrim"></div>
+  <div class="modal" id="aiModal"><div class="grab"></div><div id="aiBody"></div></div>
+
+  <!-- change location -->
+  <div class="scrim" id="locScrim"></div>
+  <div class="modal" id="locModal">
+    <div class="grab"></div>
+    <b style="font-size:1.05em">📍 מאיפה לחפש?</b>
+    <button class="btn ghost" id="locGps" style="margin-top:12px">📡 איתור אוטומטי לפי ה-GPS</button>
+    <div class="fldlbl">או חיפוש כתובת / עיר</div>
+    <input class="txt" id="locQ" placeholder="לדוגמה: הרצל 12 נתניה">
+    <button class="btn" id="locSearch" style="background:var(--acc); color:var(--acc-ink)">🔎 חפש</button>
+    <div id="locResults"></div>
+    <button class="btn ghost" id="locClose">סגירה</button>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+"use strict";
+/* ================= config ================= */
+const P = new URLSearchParams(location.search);
+// AllAroundMe: uid/session query for the analyze proxy (logs the triage trail)
+const AAM_QS = src => window.AAM && AAM.uid
+  ? "?uid=" + encodeURIComponent(AAM.uid) + "&session=" + (AAM.sessionId || "") + "&source=" + src
+  : "?source=" + src;
+const aamTrack = (type, el, data) => { try { window.AAM && AAM.track(type, el, data); } catch (e) {} };
+// Eshkolot-alphon API. Default: this app's own /api proxy (server.js forwards to
+// ESHKOLOT_API_URL). ?api=https://host/api overrides; file:// falls back to the
+// local alphon dev port.
+const API = (P.get("api") || (location.protocol.startsWith("http") ? "/api" : "http://localhost:3070/api")).replace(/\/$/,"");
+const WA_CHANNEL = "972505550100";
+const BRAND = 'מסביב של שיח מדיקל';
+const FALLBACK_CENTER = { lat:32.0736, lng:34.7924, label:"תל אביב (ברירת מחדל)" };
+
+// Theme=1|2|3 comes in the URL — the "איך נוח לך לראות?" screen is skipped.
+const THEME = Math.min(3, Math.max(1, parseInt(P.get("Theme") || P.get("theme") || P.get("d") || "1", 10) || 1));
+document.body.className = "dir-" + THEME;
+
+/* scenario -> Eshkolot public API query + display */
+const SCEN = {
+  doctor:   { title:"רופאים באזור",        emoji:"🩺", q:{ type:"רופא" } }, // tag/fund added from the qDoc screen
+  throat:   { title:"מרגיש/ה לא טוב",      emoji:"🤒", q:{ type:"רופא", specialty:"משפחה,פנימית" } },
+  stock:    { title:"בתי מרקחת סביבך",     emoji:"💊", q:{ type:"בית מרקחת" } },
+  fracture: { title:"מיון ורפואה דחופה",   emoji:"🤕", q:{ type:"רפואה דחופה,חדר מיון,בית חולים" }, danger:true },
+  rash:     { title:"רופאי ילדים ועור",    emoji:"🧒", q:{ type:"רופא", specialty:"ילדים,עור" } },
+  dental:   { title:"מרפאות שיניים",       emoji:"🦷", q:{ specialty:"שיניים" } },
+  homecare: { title:"טיפול עד הבית",       emoji:"🏠", q:{ specialty:"אחיות,פיזיותרפיה,גריאטריה" } },
+  tourist:  { title:"English-speaking",     emoji:"🌍", q:{ type:"רופא", specialty:"משפחה" } },
+  ai:       { title:"לפי ההקלטה שלך",      emoji:"🤖", q:{} } // tags come from the AI analysis
+};
+const MIN_TO_KM = { 10:7, 20:15, 45:35 };   // travel minutes -> search radius
+const KM_TO_MIN = km => Math.max(1, Math.round(km * 1.35 + 1)); // ~45 km/h urban driving
+
+const A = { s:null, km:15, tag:null, fund:null };
+const LOC = { lat:null, lng:null, label:null, real:false };
+let ENTITIES = [], VIEW = "map", RELATION = {}; // relation per entity id
+
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = t => String(t ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+/* ================= exact location (asked immediately, user-replaceable) ================= */
+function locate(cb, force){
+  if(LOC.manual && !force){ cb && cb(); return; }   // user picked a location — keep it
+  if(LOC.real && !force){ cb && cb(); return; }
+  if(!navigator.geolocation){ useFallback(); cb && cb(); return; }
+  navigator.geolocation.getCurrentPosition(pos=>{
+    applyLocation(pos.coords.latitude, pos.coords.longitude,
+      pos.coords.latitude.toFixed(5) + ", " + pos.coords.longitude.toFixed(5) + " (±" + Math.round(pos.coords.accuracy) + " מ׳)",
+      { real:true });
+    reverseGeocode();
+    cb && cb();
+  }, ()=>{ useFallback(); cb && cb(); }, { enableHighAccuracy:true, timeout:8000, maximumAge:60000 });
+}
+function useFallback(){
+  if(LOC.lat == null){ LOC.lat = FALLBACK_CENTER.lat; LOC.lng = FALLBACK_CENTER.lng; LOC.label = FALLBACK_CENTER.label; }
+  $("#locTxt").textContent = "מיקום לא אושר · " + LOC.label;
+}
+function applyLocation(lat, lng, label, opts = {}){
+  LOC.lat = lat; LOC.lng = lng; LOC.label = label;
+  LOC.real = !!opts.real; LOC.manual = !!opts.manual;
+  $("#locTxt").textContent = (opts.manual ? "מיקום נבחר: " : "מיקום זוהה: ") + label;
+  // the map is open? refresh the search around the new location
+  if($("#mapScreen").classList.contains("on")) fetchEntities();
+}
+function reverseGeocode(){ /* best-effort street name; coords already shown */
+  fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&accept-language=he&lat=" + LOC.lat + "&lon=" + LOC.lng)
+    .then(r=>r.json()).then(j=>{
+      const a = j.address || {};
+      const nice = [a.road, a.house_number, a.city || a.town || a.village].filter(Boolean).join(" ");
+      if(nice && !LOC.manual){ LOC.label = nice; $("#locTxt").textContent = "מיקום זוהה: " + nice; }
+    }).catch(()=>{});
+}
+locate();
+
+/* ---- change-location modal (click on the chip) ---- */
+function locModal(on){ $("#locModal").classList.toggle("on", on); $("#locScrim").classList.toggle("on", on); }
+$("#locBtn").onclick = ()=>{ $("#locResults").innerHTML = ""; $("#locQ").value = ""; locModal(true); };
+$("#locScrim").onclick = ()=> locModal(false);
+$("#locClose").onclick = ()=> locModal(false);
+$("#locGps").onclick = ()=>{
+  $("#locTxt").textContent = "מאתר מיקום מדויק…";
+  locModal(false);
+  LOC.manual = false;
+  locate(null, true);
+};
+$("#locSearch").onclick = searchAddress;
+$("#locQ").onkeydown = ev=>{ if(ev.key === "Enter") searchAddress(); };
+function searchAddress(){
+  const q = $("#locQ").value.trim();
+  if(!q) return;
+  const w = $("#locResults");
+  w.innerHTML = '<div class="hint" style="margin-top:8px">מחפש…</div>';
+  fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&accept-language=he&countrycodes=il&limit=5&q=" + encodeURIComponent(q))
+    .then(r=>r.json())
+    .then(list=>{
+      if(!list.length){ w.innerHTML = '<div class="hint" style="margin-top:8px">לא נמצאה כתובת מתאימה — נסו ניסוח אחר.</div>'; return; }
+      w.innerHTML = "";
+      list.forEach(hit=>{
+        const parts = String(hit.display_name || "").split(",").map(s=>s.trim());
+        const b = document.createElement("button");
+        b.className = "locrow";
+        b.innerHTML = "<b>" + esc(parts.slice(0,2).join(", ")) + "</b><small>" + esc(parts.slice(2,5).join(", ")) + "</small>";
+        b.onclick = ()=>{
+          applyLocation(parseFloat(hit.lat), parseFloat(hit.lon), parts.slice(0,2).join(", "), { real:true, manual:true });
+          locModal(false);
+        };
+        w.appendChild(b);
+      });
+    })
+    .catch(()=>{ w.innerHTML = '<div class="hint" style="margin-top:8px">⚠ חיפוש הכתובת נכשל (אין רשת?)</div>'; });
+}
+
+/* ================= wizard flow ================= */
+let SCREEN = "q1";
+function show(id){
+  SCREEN = id;
+  $$(".q").forEach(q=> q.classList.toggle("on", q.id === id));
+  $("#back").classList.toggle("show", id !== "q1");
+  $("#wizBody").scrollTop = 0;
+}
+$("#back").onclick = ()=> show("q1");
+
+$$("#q1 .opt").forEach(b=> b.onclick = ()=>{
+  A.s = b.dataset.s; mark(b);
+  setTimeout(()=>{
+    if(A.s === "doctor"){ loadFilters(); show("qDoc"); }
+    else show("q2");
+  }, 150);
+});
+$$("#q2 .opt").forEach(b=> b.onclick = ()=>{
+  A.km = MIN_TO_KM[b.dataset.t] || 15; mark(b);
+  setTimeout(openMap, 150);
+});
+function mark(b){ [...b.parentElement.children].forEach(x=>x.classList.remove("sel")); b.classList.add("sel"); }
+
+/* ---- doctor finder: parent-tag specialties + funds from the alphon ---- */
+let filtersLoaded = false;
+function loadFilters(){
+  if(filtersLoaded) return;
+  // distance chips (from current location)
+  const kmWrap = $("#kmChips"); kmWrap.innerHTML = "";
+  [2,5,10,20].forEach((km,i)=>{
+    const c = chip(km + ' ק"מ', kmWrap, ()=>{ A.km = km; });
+    if(km === 10){ c.classList.add("on"); A.km = 10; }
+  });
+  fetch(API + "/public/filters").then(r=>r.json()).then(f=>{
+    filtersLoaded = true;
+    const sw = $("#specChips"); sw.innerHTML = "";
+    (f.specialties || []).forEach(s=>{
+      const c = chip(esc(s.name) + ' <span class="n">' + s.count + "</span>", sw, ()=>{
+        A.tag = s.name; $("#docGo").disabled = false;
+      });
+    });
+    const fw = $("#fundChips"); fw.innerHTML = "";
+    (f.funds || []).forEach(fd=> chip(esc(fd), fw, on=>{ A.fund = on ? fd : null; }, true));
+  }).catch(()=>{
+    $("#specChips").innerHTML = '<span class="hint">⚠ אין חיבור לאלפון אשכולות (' + esc(API) + '). ודאו שהשרת רץ, או העבירו ?api= בכתובת.</span>';
+  });
+}
+function chip(html, wrap, onSel, toggle){
+  const c = document.createElement("button");
+  c.className = "chip"; c.innerHTML = html;
+  c.onclick = ()=>{
+    if(toggle){ const on = !c.classList.contains("on"); [...wrap.children].forEach(x=>x.classList.remove("on")); c.classList.toggle("on", on); onSel(on); }
+    else { [...wrap.children].forEach(x=>x.classList.remove("on")); c.classList.add("on"); onSel(); }
+  };
+  wrap.appendChild(c);
+  return c;
+}
+$("#docGo").onclick = ()=>{ if(A.tag) openMap(); };
+
+/* ================= map screen ================= */
+function openMap(){
+  $("#mapScreen").classList.add("on");
+  $("#wizHead").style.display = "none";
+  mapMsg("📡 מבקש מיקום מדויק מהנייד…");
+  locate(fetchEntities);
+}
+$("#mBack").onclick = ()=>{
+  $("#mapScreen").classList.remove("on");
+  $("#wizHead").style.display = "";
+  show(A.s === "doctor" ? "qDoc" : A.s === "ai" ? "q1" : "q2");
+};
+$("#vMap").onclick  = ()=>{ VIEW="map"; renderViews(); };
+$("#vList").onclick = ()=>{ VIEW="list"; renderViews(); };
+$("#mTtl").onclick  = ()=>{ $("#locResults").innerHTML = ""; $("#locQ").value = ""; locModal(true); };
+
+function mapMsg(html){
+  const m = $("#mapMsg");
+  if(!html){ m.style.display = "none"; return; }
+  m.style.display = "grid"; $("#mapMsgTx").innerHTML = html;
+}
+
+function fetchEntities(){
+  const sc = SCEN[A.s] || SCEN.doctor;
+  const q = new URLSearchParams({ lat:LOC.lat, lng:LOC.lng, radius:A.km, limit:80 });
+  Object.entries(sc.q).forEach(([k,v])=> q.set(k,v));
+  if(A.s === "doctor"){
+    if(A.tag)  q.set("tag", A.tag);
+    if(A.fund) q.set("fund", A.fund);
+  }
+  if(A.s === "ai" && A.aiTags?.length) q.set("tag", A.aiTags.join(","));
+  $("#mTitle").textContent = sc.title + (A.s==="doctor" && A.tag ? " · " + A.tag : "") + (A.s==="ai" && A.aiTags?.length ? " · " + A.aiTags.join(", ") : "");
+  $("#mSub").textContent = "עד " + A.km + ' ק"מ מ: ' + (LOC.label || "המיקום שלך") + (A.fund ? " · " + A.fund : "");
+  // AI what-to-do recommendation banner
+  const bar = $("#aiRecBar");
+  if(A.s === "ai" && AI?.recommendation){
+    bar.style.display = "flex";
+    bar.className = "airec" + (AI.urgent ? " urgent" : "");
+    bar.innerHTML = '<span>🤖 <b>מה לעשות:</b> ' + esc(AI.recommendation) + '</span><button class="x" title="סגירה">✕</button>';
+    bar.querySelector(".x").onclick = ()=> bar.style.display = "none";
+  } else bar.style.display = "none";
+  mapMsg("🔎 שולף מאלפון אשכולות…");
+  fetch(API + "/public/nearby?" + q)
+    .then(r=>{ if(!r.ok) throw new Error(r.status); return r.json(); })
+    .then(d=>{
+      ENTITIES = jitterStacked(d.entities || []);
+      aamTrack("search", "map", { s:A.s, tag:A.tag || (A.aiTags||[]).join(","), km:A.km, fund:A.fund, results:ENTITIES.length });
+      $("#mCount").textContent = ENTITIES.length ? ENTITIES.length + " תוצאות" : "";
+      if(!ENTITIES.length){ mapMsg("לא נמצאו תוצאות ברדיוס של " + A.km + ' ק"מ.<br>נסו להגדיל את המרחק או לשנות סינון.'); return; }
+      mapMsg(null);
+      renderViews();
+    })
+    .catch(()=> mapMsg('⚠ אין חיבור ל־API של אלפון אשכולות.<br><code style="direction:ltr">' + esc(API) + "</code><br>ודאו שהשרת רץ או העבירו <b>?api=</b> בכתובת."));
+}
+
+/* entities that share the exact same coords (city-center geocoding) get a
+   small deterministic spread so pins don't hide each other */
+function jitterStacked(list){
+  const groups = {};
+  list.forEach(e=>{ const k = e.lat.toFixed(5) + "," + e.lng.toFixed(5); (groups[k] = groups[k] || []).push(e); });
+  Object.values(groups).forEach(g=>{
+    if(g.length < 2) return;
+    g.forEach((e,i)=>{
+      // sunflower spiral (golden angle): organic scatter within ~300m
+      const ang = i * 2.39996, r = 0.00035 * Math.sqrt(i + 1);
+      e.lat += r * Math.sin(ang); e.lng += r * Math.cos(ang) / Math.cos(e.lat * Math.PI / 180);
+    });
+  });
+  return list;
+}
+
+/* ---- proportional projection: bbox of user + all entities, +20% margin ---- */
+function project(){
+  const box = $("#mapView").getBoundingClientRect();
+  let minLat = LOC.lat, maxLat = LOC.lat, minLng = LOC.lng, maxLng = LOC.lng;
+  ENTITIES.forEach(e=>{
+    minLat = Math.min(minLat, e.lat); maxLat = Math.max(maxLat, e.lat);
+    minLng = Math.min(minLng, e.lng); maxLng = Math.max(maxLng, e.lng);
+  });
+  // 20% more than the tight bounding box (10% each side), with a minimum span
+  let spanLat = Math.max(maxLat - minLat, 0.004), spanLng = Math.max(maxLng - minLng, 0.004);
+  minLat -= spanLat * .1; maxLat += spanLat * .1; spanLat *= 1.2;
+  minLng -= spanLng * .1; maxLng += spanLng * .1; spanLng *= 1.2;
+  // keep real-world proportions (meters), letterboxing the shorter axis
+  const midLat = (minLat + maxLat) / 2;
+  const mW = spanLng * 111320 * Math.cos(midLat * Math.PI / 180);
+  const mH = spanLat * 110540;
+  const scale = Math.min(box.width / mW, box.height / mH);
+  const usedW = mW * scale, usedH = mH * scale;
+  const offX = (box.width - usedW) / 2, offY = (box.height - usedH) / 2;
+  const metersPerPx = 1 / scale;
+  return {
+    x: lng => offX + ((lng - minLng) / spanLng) * usedW,
+    y: lat => offY + ((maxLat - lat) / spanLat) * usedH,
+    kmToPx: km => (km * 1000) / metersPerPx
+  };
+}
+
+function renderViews(){
+  $("#vMap").classList.toggle("on", VIEW === "map");
+  $("#vList").classList.toggle("on", VIEW === "list");
+  $("#mapView").style.display = VIEW === "map" ? "" : "none";
+  $("#listView").classList.toggle("on", VIEW === "list");
+  if(VIEW === "map") renderMap(); else renderList();
+}
+
+function entityEmoji(e){
+  const sc = SCEN[A.s] || {};
+  const t = (e.type || "") + " " + (e.spec || "");
+  if(/שיניים|פה ולסת/.test(t)) return "🦷";
+  if(/מרקחת/.test(t)) return "💊";
+  if(/מיון|בית חולים/.test(t)) return "🏥";
+  if(/דחופה/.test(t)) return "🚑";
+  if(/ילדים/.test(t)) return "🧒";
+  if(/אחיות|סיעוד/.test(t)) return "🏠";
+  if(/מעבדה|מכון/.test(t)) return "🔬";
+  if(/רופא/.test(e.type || "")) return "🩺";
+  return sc.emoji || "📍";
+}
+const relStar = id => RELATION[id]?.rel === "regular" ? "⭐" : RELATION[id]?.rel === "friend" ? "🌟" : "";
+const isDanger = e => /מיון|דחופה/.test((e.type||"") + (e.spec||""));
+
+function renderMap(){
+  const inner = $("#mapInner"); inner.innerHTML = "";
+  const pr = project();
+  // distance rings around the user
+  [Math.round(A.km/2*10)/10, A.km].forEach(km=>{
+    const r = document.createElement("div");
+    r.className = "ring";
+    const d = pr.kmToPx(km) * 2;
+    r.style.width = d + "px"; r.style.height = d + "px";
+    r.style.left = pr.x(LOC.lng) + "px"; r.style.top = pr.y(LOC.lat) + "px";
+    r.innerHTML = "<b>" + km + ' ק"מ</b>';
+    inner.appendChild(r);
+  });
+  // me
+  const me = document.createElement("div");
+  me.className = "me";
+  me.style.left = pr.x(LOC.lng) + "px"; me.style.top = pr.y(LOC.lat) + "px";
+  me.innerHTML = '<div class="dot"></div><div class="lbl">את/ה כאן</div>';
+  inner.appendChild(me);
+  // pins
+  const dense = ENTITIES.length > 40;
+  ENTITIES.forEach((e, i)=>{
+    // in dense results only the 12 nearest keep the full pin + minutes label
+    const p = document.createElement("button");
+    p.className = "pin" + (isDanger(e) ? " danger" : "") + (dense && i >= 12 ? " mini" : "");
+    p.style.left = pr.x(e.lng) + "px"; p.style.top = pr.y(e.lat) + "px";
+    p.innerHTML = '<span class="em">' + entityEmoji(e) + '<span class="star">' + relStar(e.id) + '</span></span><br><span class="d">' + KM_TO_MIN(e.km) + " דק׳</span>";
+    p.title = e.name;
+    p.onclick = ()=> showEntity(e);
+    inner.appendChild(p);
+  });
+}
+addEventListener("resize", ()=>{ if($("#mapScreen").classList.contains("on") && VIEW==="map" && ENTITIES.length) renderMap(); });
+
+function renderList(){
+  const w = $("#listView"); w.innerHTML = "";
+  ENTITIES.slice().sort((a,b)=>a.km-b.km).forEach(e=>{
+    const r = document.createElement("button");
+    r.className = "row" + (isDanger(e) ? " danger" : "");
+    r.innerHTML = '<div class="em">' + entityEmoji(e) + '</div>'
+      + '<div class="tx"><b>' + esc(e.name) + "</b><span>" + esc([e.spec || e.type, e.org].filter(Boolean).join(" · ")) + "</span></div>"
+      + '<div class="tm"><b>' + KM_TO_MIN(e.km) + ' דק׳</b><span>' + fmtDist(e.km) + "</span></div>";
+    r.onclick = ()=> showEntity(e);
+    w.appendChild(r);
+  });
+}
+const fmtDist = km => km < 1 ? Math.round(km*1000) + " מ׳" : km.toFixed(1) + ' ק"מ';
+
+/* ================= entity card: WhatsApp + Waze ================= */
+const REL_OPTS = [
+  { id:"new",     label:"רופא/ה חדש/ה",  msg:(e)=>`שלום ${e.name}, מצאתי אותך ב${BRAND}. אני מחפש/ת ${e.spec || "רופא/ה"} באזור — האם את/ה מקבל/ת מטופלים חדשים, ויש תור פנוי היום?` },
+  { id:"friend",  label:"המלצה מחבר/ה",  msg:(e,f)=>`שלום ${e.name}, קיבלתי עליך המלצה חמה מ${f || "{שם חבר}"} ומצאתי אותך ב${BRAND}. האם יש תור פנוי בימים הקרובים?` },
+  { id:"regular", label:"מטופל/ת קבוע/ה", msg:(e)=>`שלום ${e.name}, מצאתי אותך ב${BRAND}. אבא שלי (בן 82, מטופל שלך) נפל אתמול בבית. האם יש לך מקום היום?` }
+];
+
+function showEntity(e){
+  const on = !!e;
+  $("#enModal").classList.toggle("on", on);
+  $("#enScrim").classList.toggle("on", on);
+  if(!e) return;
+  const st = RELATION[e.id] = RELATION[e.id] || { rel:"new", friend:"" };
+  const m = $("#enModal");
+  m.innerHTML = `
+    <div class="grab"></div>
+    <div class="sh-top">
+      <div class="sh-em" id="cardEm">${entityEmoji(e)}<span class="star">${relStar(e.id)}</span></div>
+      <div class="sh-ttl"><b>${esc(e.name)}</b><span class="spec">${esc([e.spec, e.type].filter(Boolean).join(" · "))}</span></div>
+    </div>
+    <div class="sh-badges">
+      <span class="badge ok">🚗 ${KM_TO_MIN(e.km)} דק׳</span>
+      <span class="badge">📏 ${fmtDist(e.km)}</span>
+      ${e.hours ? `<span class="badge">🕐 ${esc(e.hours)}</span>` : ""}
+      ${e.org ? `<span class="badge">🏥 ${esc(e.org)}</span>` : ""}
+      ${e.verified ? `<span class="badge ok">✓ מאומת באלפון</span>` : ""}
+    </div>
+    ${e.address ? `<div class="hint" style="margin:2px 0 0">📍 ${esc(e.address)}</div>` : ""}
+    <div class="relrow">
+      <div class="fldlbl" style="margin-top:8px">מכיר/ה את התיק?</div>
+      <div class="chips" id="relChips"></div>
+      <input class="friend" id="friendName" placeholder="שם החבר/ה שהמליץ/ה" value="${esc(st.friend)}">
+    </div>
+    <textarea class="draft" id="draft"></textarea>
+    <a class="btn wa" id="waBtn" target="_blank" rel="noopener">💬 שלח בוואטסאפ</a>
+    <a class="btn waze" href="https://waze.com/ul?ll=${e.lat},${e.lng}&navigate=yes" target="_blank" rel="noopener">🚗 נווט עם Waze (${KM_TO_MIN(e.km)} דק׳)</a>
+    ${e.phone ? `<a class="btn ghost" href="tel:${esc(e.phone)}">📞 ${esc(e.phone)}</a>` : ""}
+    <button class="btn ghost" id="enClose">סגירה</button>`;
+
+  const relWrap = m.querySelector("#relChips");
+  REL_OPTS.forEach(o=>{
+    const c = document.createElement("button");
+    c.className = "chip" + (st.rel === o.id ? " on" : "");
+    c.textContent = o.label;
+    c.onclick = ()=>{ st.rel = o.id; refresh(); };
+    relWrap.appendChild(c);
+  });
+
+  const refresh = ()=>{
+    [...relWrap.children].forEach((c,i)=> c.classList.toggle("on", REL_OPTS[i].id === st.rel));
+    m.querySelector("#friendName").classList.toggle("show", st.rel === "friend");
+    m.querySelector("#cardEm").innerHTML = entityEmoji(e) + '<span class="star">' + relStar(e.id) + "</span>";
+    const opt = REL_OPTS.find(o=>o.id === st.rel);
+    m.querySelector("#draft").value = opt.msg(e, st.friend);
+    updateWa();
+    if(VIEW === "map") renderMap(); // pin emoji follows the relation choice
+  };
+  const updateWa = ()=>{
+    const btn = m.querySelector("#waBtn");
+    if(e.wa){
+      btn.href = "https://wa.me/" + e.wa + "?text=" + encodeURIComponent(m.querySelector("#draft").value.trim());
+      btn.removeAttribute("aria-disabled");
+    } else {
+      btn.setAttribute("aria-disabled","true");
+      btn.textContent = "אין וואטסאפ לפניות · טלפון בלבד";
+    }
+  };
+  m.querySelector("#friendName").oninput = ev=>{ st.friend = ev.target.value; const o=REL_OPTS.find(o=>o.id==="friend"); m.querySelector("#draft").value = o.msg(e, st.friend); updateWa(); };
+  m.querySelector("#draft").oninput = updateWa;
+  m.querySelector("#enClose").onclick = ()=> showEntity(null);
+  // AllAroundMe: contacting/navigating = the user "chose" this doctor —
+  // recorded for the points system and the next-visit rating prompt.
+  const choose = (via) => {
+    if (!window.AAM) return;
+    AAM.chosen({ id:e.id, name:e.name, spec:e.spec || e.type });
+    AAM.action("פנה אל " + e.name + " דרך " + via);
+    aamTrack("contact", via, { entity:e.name });
+  };
+  m.querySelector("#waBtn").addEventListener("click", ()=> choose("וואטסאפ"));
+  m.querySelector(".btn.waze").addEventListener("click", ()=> choose("Waze"));
+  const telBtn = m.querySelector('a[href^="tel:"]');
+  if (telBtn) telBtn.addEventListener("click", ()=> choose("טלפון"));
+  refresh();
+}
+$("#enScrim").onclick = ()=> showEntity(null);
+
+/* ================= record → transcribe (server) → AI triage → tag search ================= */
+let recTimer = null, recSec = 0, mediaRec = null, recChunks = [], recStream = null;
+let AI = null; // last analysis: { text, recommendation, tags, urgent }
+(function buildBars(){
+  const bars = $("#bars");
+  for(let i=0;i<18;i++){
+    const b = document.createElement("i");
+    b.style.animationDelay = (i*0.07) + "s";
+    b.style.animationDuration = (0.7 + (i%5)*0.12) + "s";
+    bars.appendChild(b);
+  }
+})();
+$("#micBtn").onclick = startRecording;
+$("#stopRec").onclick = stopRecording;
+$("#aiScrim").onclick = ()=> aiModal(false);
+function aiModal(on){ $("#aiModal").classList.toggle("on", on); $("#aiScrim").classList.toggle("on", on); }
+
+async function startRecording(){
+  recSec = 0; recChunks = [];
+  try{
+    recStream = await navigator.mediaDevices.getUserMedia({ audio:true });
+  }catch{
+    return textFallback("לא ניתן לגשת למיקרופון — אפשר לכתוב במקום:");
+  }
+  const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
+             : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+  mediaRec = new MediaRecorder(recStream, mime ? { mimeType:mime } : {});
+  mediaRec.ondataavailable = ev=>{ if(ev.data.size) recChunks.push(ev.data); };
+  mediaRec.onstop = ()=>{
+    recStream.getTracks().forEach(t=>t.stop());
+    const blob = new Blob(recChunks, { type: mediaRec.mimeType || "audio/webm" });
+    if(blob.size < 1000) return textFallback("ההקלטה קצרה מדי — אפשר לכתוב במקום:");
+    analyze({ blob });
+  };
+  mediaRec.start();
+  $("#timer").textContent = "0:00";
+  $("#recOv").classList.add("on");
+  recTimer = setInterval(()=>{
+    recSec++;
+    $("#timer").textContent = Math.floor(recSec/60) + ":" + String(recSec%60).padStart(2,"0");
+    if(recSec >= 90) stopRecording(); /* safety cap */
+  }, 1000);
+}
+function stopRecording(){
+  clearInterval(recTimer);
+  $("#recOv").classList.remove("on");
+  if(mediaRec && mediaRec.state !== "inactive") mediaRec.stop();
+}
+
+function textFallback(title){
+  aiModal(true);
+  $("#aiBody").innerHTML = `
+    <b style="font-size:1.05em">${esc(title || "ספרו מה קרה")}</b>
+    <textarea class="tr" id="fbText" placeholder="לדוגמה: אבא שלי בן 82 נפל בבית וכואב לו הגב…" style="margin-top:10px"></textarea>
+    <button class="btn acc" id="fbGo" style="background:var(--acc); color:var(--acc-ink)">🤖 נתח ומצא לי בעזרת AI</button>
+    <button class="btn ghost" id="fbCancel">ביטול</button>`;
+  $("#fbGo").onclick = ()=>{ const t = $("#fbText").value.trim(); if(t) analyze({ text:t }); };
+  $("#fbCancel").onclick = ()=> aiModal(false);
+}
+
+function analyze({ blob, text }){
+  aiModal(true);
+  $("#aiBody").innerHTML = `
+    <b style="font-size:1.05em">🤖 מנתח…</b>
+    <p style="font-size:.82em; color:var(--mut); margin:6px 0 0; line-height:1.5">${blob ? "מתמלל את ההקלטה ושולח לניתוח יחד עם תגיות האלפון" : "שולח לניתוח יחד עם תגיות האלפון"}</p>
+    <div class="spin"></div>`;
+  let req;
+  if(blob){
+    const fd = new FormData();
+    fd.append("audio", blob, "recording.webm");
+    req = fetch(API + "/public/analyze" + AAM_QS("voice"), { method:"POST", body:fd });
+  } else {
+    req = fetch(API + "/public/analyze" + AAM_QS("text"), { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ text }) });
+  }
+  req.then(r=> r.json().then(j=> ({ ok:r.ok, j })))
+    .then(({ ok, j })=>{
+      if(!ok) throw new Error(j.error || "analyze failed");
+      AI = j;
+      showAiResult();
+    })
+    .catch(e=>{
+      $("#aiBody").innerHTML = `
+        <b style="font-size:1.05em">⚠ הניתוח נכשל</b>
+        <p style="font-size:.82em; color:var(--mut); margin:6px 0 0; line-height:1.5">${esc(String(e.message || e))}</p>
+        <button class="btn ghost" id="fbRetry">כתיבה במקום הקלטה</button>
+        <button class="btn ghost" id="fbClose">סגירה</button>`;
+      $("#fbRetry").onclick = ()=> textFallback();
+      $("#fbClose").onclick = ()=> aiModal(false);
+    });
+}
+
+function showAiResult(){
+  const sel = new Set(AI.tags);
+  $("#aiBody").innerHTML = `
+    <b style="font-size:1.05em">התמלול והניתוח מוכנים ✓</b>
+    <textarea class="tr" id="aiText" style="margin-top:10px">${esc(AI.text)}</textarea>
+    <div class="aibox ${AI.urgent ? "urgent" : ""}">🤖 <b>מה לעשות:</b> ${esc(AI.recommendation || "")}</div>
+    <div class="fldlbl">תגיות לחיפוש באלפון (ניתן לכבות/להדליק)</div>
+    <div class="chips" id="aiTags"></div>
+    <button class="btn" id="aiGo" style="background:var(--acc); color:var(--acc-ink)">🗺️ הצג במפה לפי התגיות ←</button>
+    <button class="btn wa" id="aiWa">💬 שלח בוואטסאפ לערוץ מסביב</button>
+    <button class="btn ghost" id="aiClose">סגירה</button>`;
+  const w = $("#aiTags");
+  AI.tags.forEach(t=>{
+    const c = document.createElement("button");
+    c.className = "chip on"; c.textContent = t;
+    c.onclick = ()=>{ c.classList.toggle("on"); c.classList.contains("on") ? sel.add(t) : sel.delete(t); $("#aiGo").disabled = !sel.size; };
+    w.appendChild(c);
+  });
+  if(!AI.tags.length) w.innerHTML = '<span class="hint">לא נמצאו תגיות מתאימות — אפשר לשלוח בוואטסאפ לבירור אנושי.</span>';
+  $("#aiGo").disabled = !sel.size;
+  $("#aiGo").onclick = ()=>{
+    A.s = "ai"; A.aiTags = [...sel]; if(!A.km || A.km > 35) A.km = 15;
+    if (window.AAM) AAM.action("חיפש במפה לפי התגיות: " + [...sel].join(", "));
+    aiModal(false);
+    openMap();
+  };
+  $("#aiWa").onclick = ()=>{
+    const t = ($("#aiText").value || AI.text).trim();
+    if (window.AAM) AAM.action("שלח את התמלול לערוץ הוואטסאפ");
+    location.href = "https://wa.me/" + WA_CHANNEL + "?text=" + encodeURIComponent(t);
+  };
+  $("#aiClose").onclick = ()=> aiModal(false);
+}
+
+/* ================= AllAroundMe deep links + session ================= */
+(function aamBoot(){
+  const boot = ()=>{
+    // ?tags=a,b,c — arrives from the tag-tree finder on the home page:
+    // a compound selection (possibly several sub-choices) searched together.
+    const tags = (P.get("tags") || "").trim();
+    if(tags){
+      A.s = "doctor"; A.tag = tags; A.km = 20;
+      openMap();
+    }
+    // ?rec=1 — open the voice recording immediately
+    if(P.get("rec") === "1"){
+      setTimeout(()=> startRecording(), 350);
+    }
+    aamTrack("map_open", null, { tags: tags || null, rec: P.get("rec") || null, theme: THEME });
+  };
+  if(window.AAM) AAM.hello().then(boot); else boot();
+})();
+</script>
+<script src="/js/sound.js"></script>
+<script src="/js/fx.js"></script>
+</body>
+</html>

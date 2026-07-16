@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ביקורות · מסביב 🎯</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="aam-waves"></div>
+<div class="aam-page">
+  <div class="aam-brand">
+    <div class="en">we care 4 u 2 see each other</div>
+    <h1>⭐ ביקורות</h1>
+    <div class="muted"><a href="/">‹ חזרה למסביב</a></div>
+  </div>
+
+  <!-- rate the doctors I chose -->
+  <div class="card" id="rateBox">
+    <h3 style="margin:4px 0 8px">הרופאים שבחרת</h3>
+    <div id="unratedList" class="muted">טוען…</div>
+  </div>
+
+  <!-- the rating form -->
+  <div class="card" id="formBox" style="display:none">
+    <h3 id="formTitle" style="margin:4px 0 10px"></h3>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <span class="chip on" id="modeSimple">⭐ דירוג כללי</span>
+      <span class="chip" id="modeDomains">🎛️ 5 תחומים</span>
+    </div>
+    <div id="simpleMode"><div class="stars" id="overallStars"></div></div>
+    <div id="domainsMode" style="display:none"></div>
+    <textarea id="revText" rows="3" placeholder="אפשר גם לכתוב כמה מילים… (או להקליט בדף המפה)" style="margin-top:10px"></textarea>
+    <button class="aam-btn" id="revSend" style="margin-top:10px"><span class="ic">📨</span><span>שליחת הביקורת (+5 נקודות)</span></button>
+  </div>
+
+  <!-- the community feed -->
+  <div class="card">
+    <h3 style="margin:4px 0 8px">מה אחרים אומרים</h3>
+    <div id="feedNote" class="muted"></div>
+    <div id="feed"></div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/sound.js"></script>
+<script src="/js/fx.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const DEFAULT_DOMAINS = ['מקצועיות', 'יחס אנושי', 'זמינות', 'הסבר ברור', 'הצוות והמרפאה'];
+  let current = null; // entity being rated
+  let overall = 0;
+  const domainStars = new Map();
+
+  function starRow(container, onPick, initial) {
+    container.innerHTML = '';
+    let val = initial || 0;
+    for (let i = 1; i <= 5; i++) {
+      const s = document.createElement('span');
+      s.textContent = '★';
+      if (i <= val) s.classList.add('on');
+      s.addEventListener('click', () => {
+        val = i;
+        [...container.children].forEach((el, j) => el.classList.toggle('on', j < i));
+        onPick(i);
+      });
+      container.appendChild(s);
+    }
+  }
+
+  async function loadUnrated() {
+    await AAM.hello();
+    const r = await fetch('/api/profile/me?uid=' + encodeURIComponent(AAM.uid)).then((x) => x.json()).catch(() => null);
+    const list = (r && r.rate_prompt) || [];
+    const box = $('#unratedList');
+    if (!list.length) {
+      box.innerHTML = 'אין כרגע רופאים שממתינים לדירוג. בחרו רופא במפה 🎯 ואז חזרו לדרג.<br>' +
+        '<input type="text" id="freeName" placeholder="או: הקלידו שם רופא לדירוג חופשי" style="margin-top:8px">' +
+        '<button class="aam-btn" id="freeGo" style="margin-top:8px;padding:10px"><span>דרגו רופא ›</span></button>';
+      $('#freeGo').addEventListener('click', () => {
+        const name = $('#freeName').value.trim();
+        if (name) openForm({ entity_name: name });
+      });
+      return;
+    }
+    box.innerHTML = '';
+    for (const d of list) {
+      const b = document.createElement('button');
+      b.className = 'aam-btn';
+      b.innerHTML = `<span class="ic">🧑‍⚕️</span><span>${d.entity_name}<br><small>${d.entity_spec || ''}</small></span>`;
+      b.addEventListener('click', () => openForm(d));
+      box.appendChild(b);
+    }
+  }
+
+  function openForm(d) {
+    current = d;
+    overall = 0; domainStars.clear();
+    $('#formBox').style.display = 'block';
+    $('#formTitle').textContent = '⭐ ' + d.entity_name;
+    starRow($('#overallStars'), (v) => { overall = v; });
+    const dm = $('#domainsMode');
+    dm.innerHTML = '';
+    for (const name of DEFAULT_DOMAINS) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin:6px 0';
+      row.innerHTML = `<span>${name}</span>`;
+      const stars = document.createElement('div');
+      stars.className = 'stars';
+      starRow(stars, (v) => domainStars.set(name, v));
+      row.appendChild(stars);
+      dm.appendChild(row);
+    }
+    $('#formBox').scrollIntoView({ behavior: 'smooth' });
+    AAM.track('review_form_open', d.entity_name);
+  }
+
+  $('#modeSimple').addEventListener('click', () => {
+    $('#modeSimple').classList.add('on'); $('#modeDomains').classList.remove('on');
+    $('#simpleMode').style.display = 'block'; $('#domainsMode').style.display = 'none';
+  });
+  $('#modeDomains').addEventListener('click', () => {
+    $('#modeDomains').classList.add('on'); $('#modeSimple').classList.remove('on');
+    $('#domainsMode').style.display = 'block'; $('#simpleMode').style.display = 'none';
+  });
+
+  $('#revSend').addEventListener('click', async () => {
+    if (!current) return;
+    const detailed = $('#domainsMode').style.display !== 'none';
+    const body = {
+      uid: AAM.uid,
+      entity_name: current.entity_name,
+      text: $('#revText').value.trim(),
+    };
+    if (detailed) {
+      body.domains = [...domainStars].map(([name, stars]) => ({ name, stars }));
+      if (!body.domains.length) return alert('סמנו כוכבים לפחות בתחום אחד');
+    } else {
+      if (!overall) return alert('סמנו כמה כוכבים');
+      body.overall_stars = overall;
+    }
+    const r = await fetch('/api/reviews', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).then((x) => x.json()).catch(() => null);
+    if (r && r.ok) {
+      AAM.track('review_sent', current.entity_name);
+      $('#formBox').style.display = 'none';
+      $('#revText').value = '';
+      loadUnrated(); loadFeed();
+      toast('⭐ תודה! הביקורת נשמרה (+5 נקודות)');
+    } else {
+      alert((r && r.error) || 'השליחה נכשלה');
+    }
+  });
+
+  function toast(text) {
+    const t = document.createElement('div');
+    t.className = 'aam-badge-toast'; t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4100);
+  }
+
+  async function loadFeed() {
+    await AAM.hello();
+    const d = await fetch('/api/reviews/feed?uid=' + encodeURIComponent(AAM.uid)).then((x) => x.json()).catch(() => null);
+    if (!d) return;
+    $('#feedNote').textContent =
+      d.mode === 'locked' ? d.message :
+      d.mode === 'random-few' ? `נתת ${d.given} ביקורות — בינתיים מוצגות כמה ביקורות אקראיות. מ-3 ביקורות נפתחות המובילות של כל יום.` :
+      '🏆 הביקורות המובילות של היום';
+    const feed = $('#feed');
+    feed.innerHTML = '';
+    for (const rev of d.reviews || []) {
+      const div = document.createElement('div');
+      div.className = 'card';
+      const stars = rev.overall_stars ? '★'.repeat(rev.overall_stars) + '☆'.repeat(5 - rev.overall_stars) : '';
+      const domains = (rev.domains || []).map((x) => `${x.name}: ${'★'.repeat(x.stars)}`).join(' · ');
+      div.innerHTML = `<b>${rev.entity_name}</b> <span style="color:#f5a623">${stars}</span>
+        ${domains ? `<div class="muted">${domains}</div>` : ''}
+        ${rev.text ? `<div>${rev.text}</div>` : ''}
+        <div class="muted" style="margin-top:6px">ביקורת על הביקורת:
+          <span class="stars" data-rid="${rev.id}" style="font-size:18px"></span>
+          <span>${rev.meta_reviews && rev.meta_reviews.count ? `(${rev.meta_reviews.count} דירוגים, ממוצע ${rev.meta_reviews.avg_stars})` : ''}</span>
+        </div>`;
+      feed.appendChild(div);
+      const sr = div.querySelector('.stars');
+      starRow(sr, async (v) => {
+        const res = await fetch(`/api/reviews/${rev.id}/review`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ uid: AAM.uid, stars: v }),
+        }).then((x) => x.json()).catch(() => null);
+        if (res && res.ok) toast('👍 הדירוג על הביקורת נשמר (+2 נקודות)');
+        else if (res && res.error) toast(res.error);
+      });
+    }
+  }
+
+  loadUnrated();
+  loadFeed();
+})();
+</script>
+</body>
+</html>

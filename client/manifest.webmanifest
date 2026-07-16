@@ -1,0 +1,14 @@
+{
+  "name": "מסביב · AllAroundMe",
+  "short_name": "מסביב",
+  "description": "We are seach Medical — We Care 4 U 2 See each other All around 🎯",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fdfefe",
+  "theme_color": "#16649e",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מסביב · AllAroundMe</title>
+<meta name="description" content="We are seach Medical — We Care 4 U 2 See each other All around 🎯">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#fdfefe">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div class="aam-waves"></div>
+
+<!-- ============================== splash ============================== -->
+<div id="aam-splash" style="display:none">
+  <div class="line1" id="spLine1"></div>
+  <div class="line2" id="spLine2"></div>
+  <div class="skip-row">
+    <button id="spSkip">דלג ›</button>
+    <button id="spNever">עזבו אותי — בלי מסך פתיחה יותר</button>
+  </div>
+</div>
+
+<!-- ============================== home ============================== -->
+<div class="aam-page" id="home" style="display:none">
+  <div class="aam-brand">
+    <div class="en">we are seach medical · we care 4 u 2 see each other all around</div>
+    <h1>מסביב 🎯</h1>
+    <div class="he">בעברית קוראים לזה מסביב</div>
+  </div>
+
+  <div id="ratePromptBox"></div>
+
+  <a class="aam-btn" href="/map.html"><span class="ic">🗺️</span>
+    <span>מפה מסביב<br><small>כל שירותי הרפואה סביבך — מהאלפון החי של אשכולות</small></span></a>
+
+  <button class="aam-btn" id="btnFinder"><span class="ic">🩺</span>
+    <span>איתור רופא לפי תחום<br><small>עץ בחירה מהיר: התמחות ← איזור בגוף ← תגיות</small></span></button>
+
+  <a class="aam-btn" href="/map.html?rec=1"><span class="ic">🎤</span>
+    <span>ספרו לנו מה קרה<br><small>הקלטה קולית ← תמלול ← המלצת AI ← רופאים במפה</small></span></a>
+
+  <a class="aam-btn" href="/reviews.html"><span class="ic">⭐</span>
+    <span>ביקורות על רופאים<br><small>דרגו את הרופאים שבחרתם וראו מה אחרים אומרים</small></span></a>
+
+  <button class="aam-btn" id="btnPoints"><span class="ic">💎</span>
+    <span>הנקודות והתגים שלי<br><small id="pointsTeaser"></small></span></button>
+
+  <a class="aam-btn" href="/doctor.html"><span class="ic">🧑‍⚕️</span>
+    <span>כניסת רופאים<br><small>שאלונים, דוחות, שיתופי מידע</small></span></a>
+
+  <!-- finder panel -->
+  <div id="finder" class="card" style="display:none">
+    <h3 style="margin:4px 0 8px">🩺 איתור רופא לפי תחום</h3>
+    <div class="muted" id="finderPath"></div>
+    <div id="finderChips"></div>
+    <div id="finderSel" style="margin-top:10px"></div>
+    <button class="aam-btn" id="finderGo" style="display:none"><span class="ic">🎯</span><span>חפשו לי אותם במפה</span></button>
+  </div>
+
+  <!-- points panel -->
+  <div id="pointsPanel" class="card" style="display:none">
+    <h3 style="margin:4px 0 8px">💎 הפרופיל שלי</h3>
+    <div id="pointsBody" class="muted">טוען…</div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script src="/js/sound.js"></script>
+<script src="/js/fx.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+  const splashEl = $('#aam-splash'), homeEl = $('#home');
+
+  // ------------------------------------------------------------- splash ----
+  // full = the 10-stage movie-style opening; short = 3 quick stages; none = straight in.
+  const STAGES_FULL = [
+    { type: 'type1', text: 'we are seach medical ...' },
+    { type: 'word', text: 'we' }, { type: 'word', text: 'care' },
+    { type: 'word', text: '4' }, { type: 'word', text: 'u' },
+    { type: 'word', text: '2' }, { type: 'eyec' },
+    { type: 'word', text: 'each other' },
+    { type: 'word', text: 'all around' },
+    { type: 'target' },
+  ];
+  const STAGES_SHORT = [
+    { type: 'type1', text: 'we are seach medical', fast: true },
+    { type: 'eyec', fast: true },
+    { type: 'target' },
+  ];
+
+  let splashDone = false;
+  function endSplash() {
+    if (splashDone) return;
+    splashDone = true;
+    document.body.classList.remove('aam-tremble');
+    splashEl.style.transition = 'opacity .7s';
+    splashEl.style.opacity = '0';
+    setTimeout(() => { splashEl.style.display = 'none'; showHome(); }, 700);
+    AAM.track('splash_done');
+  }
+
+  function typewriter(el, text, speed) {
+    return new Promise((resolve) => {
+      let i = 0;
+      const t = setInterval(() => {
+        el.textContent = text.slice(0, ++i);
+        if (i >= text.length) { clearInterval(t); resolve(); }
+      }, speed);
+    });
+  }
+
+  async function playSplash(variant) {
+    splashEl.style.display = 'flex';
+    document.body.classList.add('aam-tremble');
+    const stages = variant === 'short' ? STAGES_SHORT : STAGES_FULL;
+    const line1 = $('#spLine1'), line2 = $('#spLine2');
+    for (const st of stages) {
+      if (splashDone) return;
+      if (st.type === 'type1') {
+        await typewriter(line1, st.text, st.fast ? 28 : 85);
+        await pause(st.fast ? 200 : 700);
+      } else if (st.type === 'word') {
+        const w = document.createElement('span');
+        w.className = 'word'; w.textContent = st.text + '  ';
+        line2.appendChild(w);
+        requestAnimationFrame(() => w.classList.add('on'));
+        await pause(480);
+      } else if (st.type === 'eyec') {
+        const w = document.createElement('span');
+        w.className = 'word eye-c';
+        w.innerHTML = '<span class="c-char">C</span><span class="pupil"></span><span class="s-tail">’s</span>&nbsp;&nbsp;';
+        line2.appendChild(w);
+        requestAnimationFrame(() => w.classList.add('on'));
+        await pause(st.fast ? 900 : 2200);   // the eye looks around...
+        w.classList.add('morphed');          // ...then C becomes C's
+        await pause(st.fast ? 300 : 800);
+      } else if (st.type === 'target') {
+        const w = document.createElement('span');
+        w.className = 'word target'; w.textContent = '🎯';
+        line2.appendChild(w);
+        requestAnimationFrame(() => w.classList.add('on'));
+        await pause(1200);
+      }
+    }
+    endSplash();
+  }
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  $('#spSkip').addEventListener('click', () => { AAM.track('splash_skip'); endSplash(); });
+  $('#spNever').addEventListener('click', () => {
+    AAM.track('splash_never');
+    AAM.skipSplashForever();
+    endSplash();
+  });
+
+  // ------------------------------------------------------------- home ------
+  function showHome() {
+    homeEl.style.display = 'block';
+    const p = AAM.profile;
+    $('#pointsTeaser').textContent = p ? `${p.points} נקודות · ${p.searches} חיפושים` : 'התחברות ראשונה';
+    for (const b of AAM.newBadges || []) toast(`${b.icon || '🏅'} תג חדש: ${b.label}`);
+    renderRatePrompt();
+  }
+
+  function toast(text) {
+    const t = document.createElement('div');
+    t.className = 'aam-badge-toast'; t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4100);
+  }
+
+  // "would you like to rate the doctors you chose?"
+  function renderRatePrompt() {
+    const list = AAM.ratePrompt || [];
+    if (!list.length) return;
+    const box = $('#ratePromptBox');
+    box.innerHTML = `<div class="card" id="rateCard">
+      <b>⭐ נשמח לדעת —</b> בחרת לאחרונה ${list.length === 1 ? 'רופא' : list.length + ' רופאים'}.
+      תרצה/י לדרג אותם?
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="aam-btn" style="margin:0;padding:10px" id="rateYes"><span>כן, לדרג ⭐</span></button>
+        <button class="aam-btn" style="margin:0;padding:10px" id="rateNo"><span>ממשיכים ›</span></button>
+      </div></div>`;
+    $('#rateYes').addEventListener('click', () => { AAM.track('rate_prompt_yes'); location.href = '/reviews.html'; });
+    $('#rateNo').addEventListener('click', () => { AAM.track('rate_prompt_no'); $('#rateCard').remove(); });
+  }
+
+  // ----------------------------------------------------------- tag tree ----
+  // Drill-down finder over the alphon tag tree. One "selection" may combine
+  // several sub-choices (e.g. foot-oncology + ankle-oncology + sarcoma).
+  let tree = null, node = null, path = [], selected = new Map();
+
+  $('#btnFinder').addEventListener('click', async () => {
+    const f = $('#finder');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    $('#pointsPanel').style.display = 'none';
+    if (f.style.display === 'none' || tree) { renderFinder(); return; }
+    $('#finderChips').innerHTML = '<span class="muted">טוען את עץ התגיות…</span>';
+    try {
+      const r = await fetch('/api/tags/tree');
+      const data = await r.json();
+      tree = { name: 'הכל', children: data.tree || [] };
+      node = tree; path = [];
+      AAM.track('finder_open', null, { source: data.source });
+    } catch {
+      $('#finderChips').innerHTML = '<span class="muted">עץ התגיות אינו זמין כרגע</span>';
+      return;
+    }
+    renderFinder();
+  });
+
+  function renderFinder() {
+    const chips = $('#finderChips');
+    if (!tree) return;
+    chips.innerHTML = '';
+    $('#finderPath').textContent = path.length ? '‹ ' + path.map((p) => p.name).join(' ← ') : 'בחרו התמחות:';
+    if (path.length) {
+      const back = document.createElement('span');
+      back.className = 'chip'; back.textContent = '‹ חזרה';
+      back.addEventListener('click', () => {
+        path.pop();
+        node = path.length ? path[path.length - 1].node : tree;
+        renderFinder();
+      });
+      chips.appendChild(back);
+    }
+    for (const child of node.children || []) {
+      const c = document.createElement('span');
+      const hasKids = (child.children || []).length > 0;
+      const key = path.map((p) => p.name).concat(child.name).join(' / ');
+      c.className = 'chip' + (selected.has(child.name) ? ' on' : '');
+      c.textContent = `${child.icon || (hasKids ? '📂' : '🏷️')} ${child.name}` + (child.count ? ` (${child.count})` : '');
+      c.addEventListener('click', () => {
+        if (hasKids) {
+          path.push({ name: child.name, node: child });
+          node = child;
+          AAM.track('finder_drill', child.name);
+        } else {
+          if (selected.has(child.name)) selected.delete(child.name);
+          else selected.set(child.name, key);
+          AAM.track('finder_pick', child.name);
+        }
+        renderFinder();
+      });
+      chips.appendChild(c);
+    }
+    // a branch is also selectable as a whole (parent tag covers all children)
+    if (path.length) {
+      const cur = path[path.length - 1];
+      const all = document.createElement('span');
+      all.className = 'chip' + (selected.has(cur.name) ? ' on' : '');
+      all.textContent = `✅ כל ${cur.name}`;
+      all.addEventListener('click', () => {
+        if (selected.has(cur.name)) selected.delete(cur.name);
+        else selected.set(cur.name, cur.name + ' (כל התחום)');
+        renderFinder();
+      });
+      chips.appendChild(all);
+    }
+    const sel = $('#finderSel');
+    sel.innerHTML = selected.size
+      ? 'הבחירה שלי: ' + [...selected.keys()].map((n) => `<span class="chip on">${n}</span>`).join('')
+      : '<span class="muted">אפשר לסמן כמה תגיות יחד — גם מענפים שונים</span>';
+    $('#finderGo').style.display = selected.size ? 'flex' : 'none';
+  }
+
+  $('#finderGo').addEventListener('click', () => {
+    const tags = [...selected.keys()];
+    AAM.track('search', 'finder', { tags });
+    location.href = '/map.html?doctor=1&tags=' + encodeURIComponent(tags.join(','));
+  });
+
+  // ------------------------------------------------------------- points ----
+  $('#btnPoints').addEventListener('click', async () => {
+    const panel = $('#pointsPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    $('#finder').style.display = 'none';
+    if (panel.style.display === 'none') return;
+    try {
+      const r = await fetch('/api/profile/me?uid=' + encodeURIComponent(AAM.uid));
+      const d = await r.json();
+      const p = d.profile;
+      $('#pointsBody').innerHTML = `
+        <div style="font-size:17px;color:#16344a">
+          💎 <b>${p.points}</b> נקודות · 🔍 ${p.searches} חיפושים · 🗓️ ${p.visits} ביקורים · ⭐ ${p.reviews_given} ביקורות
+        </div>
+        <div style="margin-top:8px">${
+          (d.badges || []).map((b) => `<span class="chip">${b.icon || '🏅'} ${b.label}</span>`).join('') ||
+          '<span class="muted">עוד אין תגים — חפשו, בחרו ותדרגו כדי להרוויח 🏅</span>'
+        }</div>`;
+    } catch {
+      $('#pointsBody').textContent = 'הפרופיל אינו זמין כרגע';
+    }
+  });
+
+  // ------------------------------------------------------------- boot ------
+  AAM.hello().then(() => {
+    const forced = new URLSearchParams(location.search).get('splash'); // ?splash=full לבדיקה
+    const variant = forced || AAM.splash;
+    if (variant === 'none') showHome();
+    else playSplash(variant);
+  });
+})();
+</script>
+</body>
+</html>
