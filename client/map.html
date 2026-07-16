@@ -775,10 +775,24 @@ function aiModal(on){ $("#aiModal").classList.toggle("on", on); $("#aiScrim").cl
 
 async function startRecording(){
   recSec = 0; recChunks = [];
+  if(!navigator.mediaDevices || !window.MediaRecorder){
+    aamTrack("mic_unsupported", null, { secure: window.isSecureContext });
+    return textFallback(window.isSecureContext
+      ? "הדפדפן הזה לא תומך בהקלטה — אפשר לכתוב במקום:"
+      : "הקלטה דורשת חיבור מאובטח (https) — אפשר לכתוב במקום:");
+  }
   try{
     recStream = await navigator.mediaDevices.getUserMedia({ audio:true });
-  }catch{
-    return textFallback("לא ניתן לגשת למיקרופון — אפשר לכתוב במקום:");
+  }catch(err){
+    /* say *why* instead of one generic message — on mobile this is almost
+       always a denied/absent permission, and the user can act on that */
+    const name = (err && err.name) || "Error";
+    aamTrack("mic_denied", name);
+    return textFallback(
+      name === "NotAllowedError" ? "אין הרשאה למיקרופון — אפשרו גישה לאתר בהגדרות הדפדפן, או כתבו כאן:" :
+      name === "NotFoundError"   ? "לא נמצא מיקרופון במכשיר — אפשר לכתוב במקום:" :
+      name === "NotReadableError"? "המיקרופון תפוס על ידי אפליקציה אחרת — אפשר לכתוב במקום:" :
+      "לא ניתן לגשת למיקרופון — אפשר לכתוב במקום:");
   }
   const mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm"
              : MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
@@ -805,6 +819,30 @@ function stopRecording(){
   if(mediaRec && mediaRec.state !== "inactive") mediaRec.stop();
 }
 
+/* Landing on ?rec=1 cannot open the microphone by itself: getUserMedia needs a
+   user gesture, and a timer is not one — iOS Safari rejects it outright (no
+   prompt), which silently dropped mobile users into the text fallback. If the
+   permission is already granted we may start straight away; otherwise we ask
+   for the one tap that makes it legal. */
+async function primeRecording(){
+  let granted = false;
+  try{
+    const st = await navigator.permissions.query({ name:"microphone" });
+    granted = st.state === "granted";
+  }catch{ /* Safari doesn't know the "microphone" permission name — ask to tap */ }
+  if(granted) return startRecording();
+
+  aiModal(true);
+  $("#aiBody").innerHTML = `
+    <b style="font-size:1.05em">🎤 ספרו לנו מה קרה</b>
+    <p style="font-size:.82em; color:var(--mut); margin:6px 0 10px; line-height:1.5">
+      הקישו כדי להתחיל להקליט — הדפדפן יבקש הרשאה למיקרופון.</p>
+    <button class="btn acc" id="recGo" style="background:var(--acc); color:var(--acc-ink)">🎤 להתחיל להקליט</button>
+    <button class="btn ghost" id="recType">⌨️ אני מעדיף/ה לכתוב</button>`;
+  $("#recGo").onclick = ()=>{ aiModal(false); startRecording(); };
+  $("#recType").onclick = ()=> textFallback("ספרו מה קרה:");
+}
+
 function textFallback(title){
   aiModal(true);
   $("#aiBody").innerHTML = `
@@ -825,7 +863,11 @@ function analyze({ blob, text }){
   let req;
   if(blob){
     const fd = new FormData();
-    fd.append("audio", blob, "recording.webm");
+    /* iOS records audio/mp4, Chrome audio/webm — name the part for what it
+       actually is instead of always .webm */
+    const t = blob.type || "";
+    const ext = /mp4|m4a|aac/.test(t) ? "m4a" : /ogg/.test(t) ? "ogg" : /wav/.test(t) ? "wav" : "webm";
+    fd.append("audio", blob, "recording." + ext);
     req = fetch(API + "/public/analyze" + AAM_QS("voice"), { method:"POST", body:fd });
   } else {
     req = fetch(API + "/public/analyze" + AAM_QS("text"), { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ text }) });
@@ -891,9 +933,9 @@ function showAiResult(){
       A.s = "doctor"; A.tag = tags; A.km = 20;
       openMap();
     }
-    // ?rec=1 — open the voice recording immediately
+    // ?rec=1 — arrive from "ספרו לנו מה קרה" ready to record
     if(P.get("rec") === "1"){
-      setTimeout(()=> startRecording(), 350);
+      primeRecording();
     }
     aamTrack("map_open", null, { tags: tags || null, rec: P.get("rec") || null, theme: THEME });
   };
