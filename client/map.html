@@ -120,7 +120,14 @@
   .pin.danger .em{border-color:var(--danger);}
   .pin.mini .em{width:26px; height:26px; font-size:13px; border-width:1.5px;}
   .pin.mini .d{display:none;}
-  .pin .d{font-size:9.5px; background:var(--ink); color:var(--bg); border-radius:8px; padding:1px 6px; margin-top:2px; display:inline-block; white-space:nowrap;}
+  /* pointer-events:none — pins crowd each other at the fit view, and a label
+     hanging over a neighbour used to swallow the tap and open its own card
+     instead. Only the bubble is a target now; labels are decoration. */
+  .pin .d{font-size:9.5px; background:var(--ink); color:var(--bg); border-radius:8px; padding:1px 6px; margin-top:2px; display:inline-block; white-space:nowrap; pointer-events:none;}
+  .pin{pointer-events:none;}          /* the .em bubble re-enables it below */
+  .pin .em{pointer-events:auto;}
+  /* whatever you are pointing at comes to the front, so it is the thing you hit */
+  .pin:hover, .pin:focus-within{z-index:6;}
   .mapmsg{position:absolute; inset:0; display:grid; place-items:center; z-index:6; text-align:center; color:var(--mut); font-size:.9em; padding:24px; line-height:1.7; background:color-mix(in srgb, var(--bg) 72%, transparent);}
   .mapmsg .in{background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:18px 20px; max-width:320px;}
 
@@ -796,7 +803,15 @@ mapEl.addEventListener("wheel", (ev)=>{
    fingers pinch. We track live pointers ourselves rather than lean on
    gesturestart, which only Safari implements. */
 const pts = new Map();
-let pinchStart = null, dragged = false;
+let pinchStart = null, dragged = false, captured = false;
+
+/* Capture only once a gesture is genuinely a drag/pinch: it guarantees we keep
+   receiving moves outside the element, at the cost of stealing the click. */
+function capture(ev){
+  if(captured) return;
+  try{ mapEl.setPointerCapture(ev.pointerId); captured = true; }catch{}
+  mapEl.classList.add("grabbing");
+}
 
 mapEl.addEventListener("pointerdown", (ev)=>{
   if(ev.target.closest(".zoomctl")) return;      // buttons are not the canvas
@@ -806,8 +821,9 @@ mapEl.addEventListener("pointerdown", (ev)=>{
     const [a, b] = [...pts.values()];
     pinchStart = { dist: Math.hypot(a.x-b.x, a.y-b.y), zoom: ZOOM };
   }
-  mapEl.setPointerCapture(ev.pointerId);
-  mapEl.classList.add("grabbing");
+  /* Deliberately NOT capturing the pointer here: capture retargets the whole
+     gesture to this container, so the click never reaches the pin underneath and
+     every card stops opening. We only capture once a real drag/pinch begins. */
 });
 
 mapEl.addEventListener("pointermove", (ev)=>{
@@ -825,9 +841,13 @@ mapEl.addEventListener("pointermove", (ev)=>{
              (a.x + b.x)/2 - box.left, (a.y + b.y)/2 - box.top);
     }
     dragged = true;
+    capture(ev);
   } else if(pts.size === 1 && ZOOM > ZMIN){
-    /* one finger pans, but only where zoom created somewhere to pan to */
-    if(Math.abs(dx) + Math.abs(dy) > 2) dragged = true;
+    /* One finger pans, but only where zoom created somewhere to pan to, and only
+       past a threshold — below it this is a tap on a pin, not a drag. */
+    if(Math.abs(dx) + Math.abs(dy) < 4 && !dragged) return;
+    dragged = true;
+    capture(ev);
     PAN.x += dx; PAN.y += dy;
     applyZoom();
   }
@@ -836,7 +856,7 @@ mapEl.addEventListener("pointermove", (ev)=>{
 function endPointer(ev){
   pts.delete(ev.pointerId);
   if(pts.size < 2) pinchStart = null;
-  if(pts.size === 0) mapEl.classList.remove("grabbing");
+  if(pts.size === 0){ mapEl.classList.remove("grabbing"); captured = false; }
 }
 mapEl.addEventListener("pointerup", endPointer);
 mapEl.addEventListener("pointercancel", endPointer);
