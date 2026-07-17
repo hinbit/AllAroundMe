@@ -605,8 +605,7 @@ function fetchEntities(){
   }
   if(A.s === "ai" && A.aiTags?.length) q.set("tag", A.aiTags.join(","));
   $("#mTitle").textContent = sc.title + (A.s==="doctor" && A.tag ? " · " + A.tag : "") + (A.s==="ai" && A.aiTags?.length ? " · " + A.aiTags.join(", ") : "");
-  $("#mSub").textContent = "עד " + A.km + ' ק"מ מ: ' + (LOC.label || "המיקום שלך") + (A.fund ? " · " + A.fund : "")
-    + (MAP_FALLBACK ? " · ⚠ מפת " + MAP_FALLBACK + " לא זמינה" : "");
+  renderMapSubtitle();
   // AI what-to-do recommendation banner
   const bar = $("#aiRecBar");
   if(A.s === "ai" && AI?.recommendation){
@@ -676,7 +675,19 @@ const isDanger = e => /מיון|דחופה/.test((e.type||"") + (e.spec||""));
    the state and the vocabulary; the provider owns the pixels, and gets at the
    former through this context object. */
 let MAP_FALLBACK = null;   // set when the theme's provider could not mount
-const MAP = AAM_MAP.create({
+
+function renderMapSubtitle(){
+  $("#mSub").textContent = "עד " + A.km + ' ק"מ מ: ' + (LOC.label || "המיקום שלך") + (A.fund ? " · " + A.fund : "")
+    + (MAP_FALLBACK ? " · ⚠ מפת " + MAP_FALLBACK + " לא זמינה" : "");
+}
+
+/* Built in aamBoot(), NOT here: which provider to build is the theme's answer,
+   and the theme arrives over the network. Constructing the map at script-eval
+   time asked that question before it could be answered, so a theme declaring
+   ui.type 2 silently got the built-in map and only the ?ui= override — read
+   straight off the query string — appeared to work. */
+let MAP = null;
+const createMap = () => AAM_MAP.create({
   el: $("#mapView"), inner: $("#mapInner"), tiles: $("#tileLayer"),
   entities: () => ENTITIES,
   loc: () => LOC,
@@ -688,11 +699,11 @@ const MAP = AAM_MAP.create({
   track: aamTrack,
   isActive: () => $("#mapScreen").classList.contains("on") && VIEW === "map",
   modalOpen: () => $("#aiModal").classList.contains("on") || $("#enModal").classList.contains("on"),
-  /* Providers mount at load, long before this screen is opened, so a notice
-     posted here would be overwritten by the first mapMsg(). Remember it instead
-     and let the subtitle carry it — the map still works, the user is just not
-     looking at the one the theme asked for. */
-  onFallback: (name) => { MAP_FALLBACK = name; }
+  /* A notice posted here would be overwritten by the first mapMsg(), so the
+     subtitle carries it instead — the map still works, the user is just not
+     looking at the one that was asked for. Mounting races the first search
+     either way, so re-render if the subtitle is already on screen. */
+  onFallback: (name) => { MAP_FALLBACK = name; if($("#mSub").textContent) renderMapSubtitle(); }
 });
 
 function renderList(){
@@ -1039,7 +1050,12 @@ function showAiResult(){
     }
     aamTrack("map_open", null, { tags: tags || null, rec: P.get("rec") || null, theme: THEME });
   };
-  if(window.AAM) AAM.hello().then(boot); else boot();
+  /* The theme has to have landed before the map is built — see createMap. It is
+     awaited alongside the session handshake rather than after it, so asking which
+     map to draw costs no extra wait. */
+  const ready = window.AAM_THEME ? AAM_THEME.load().catch(()=>{}) : Promise.resolve();
+  const session = window.AAM ? AAM.hello().catch(()=>{}) : Promise.resolve();
+  Promise.all([ready, session]).then(()=>{ MAP = createMap(); boot(); });
 })();
 </script>
 <script src="/js/sound.js"></script>

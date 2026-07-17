@@ -37,7 +37,7 @@ for `"logo": null` when the background image is already the finished card.
 
 | Field | Meaning |
 | --- | --- |
-| `ui.type` | `1` = the built-in radial map over OSM tiles · `2` = `google_based` (Google Maps JS API) |
+| `ui.type` | `1` = the built-in radial map over OSM tiles · `2` = `google_based` (Google Maps JS API). The deployment's `UI_TYPE` overrides this; `?ui=` overrides both |
 | `openScreen.animation` | which `client/animations/<id>.json` plays on entry |
 | `openScreen.*` | anything else here overrides that animation's own fields for this theme |
 | `assets.*` | named assets. Animations ask for `background` / `logo` by **name**, never by path — which is how one animation serves every brand |

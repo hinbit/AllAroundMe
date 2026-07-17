@@ -10,22 +10,26 @@
    canabolabs is what every theme FALLS BACK TO. The product's own brand is a
    theme like any other, and the base is the demo brand that fills the gaps.
 
-   Choosing a theme: ?theme=<name> (also remembered) > localStorage > allaroundme.
-   ?ui=1|2 overrides the interface type for a single visit, without switching brand. */
+   Choosing a theme: ?theme=<name> (also remembered) > localStorage > the server's
+   CLIENT_THEME > allaroundme. The interface type: ?ui=1|2 > the server's UI_TYPE
+   > the theme's own ui.type > 1. The server sits above the theme on purpose — a
+   deployment can put every theme on Google Maps without editing any of them —
+   and below the query string, so testing still wins. */
 (function () {
   'use strict';
 
   const BASE = 'canabolabs';          // merged UNDER every theme — see the note above
-  const DEFAULT = 'allaroundme';      // loaded when nobody asked for anything
+  const DEFAULT = 'allaroundme';      // loaded when nobody and nothing asked
   const STORE = 'aam_theme';
   const UI_TYPES = [1, 2];
 
   const qs = new URLSearchParams(location.search);
 
-  function pickName() {
+  function pickName(server) {
     const asked = qs.get('theme');
     if (asked) { try { localStorage.setItem(STORE, asked); } catch {} return asked; }
-    try { return localStorage.getItem(STORE) || DEFAULT; } catch { return DEFAULT; }
+    try { return localStorage.getItem(STORE) || server.theme || DEFAULT; }
+    catch { return server.theme || DEFAULT; }
   }
 
   const isPlain = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -47,21 +51,39 @@
   const AAM_THEME = {
     name: BASE,
     data: null,
+    server: {},          // what /api/config answered (see config())
     _ready: null,
+    _config: null,
+
+    /* The deployment's own say: default theme, interface type, Maps key. Fetched
+       once and shared — js/map/mapTypes.js reads the key back off this rather
+       than asking again. Unreachable server = an app that still runs, on its own
+       defaults. */
+    config() {
+      if (!this._config) {
+        this._config = fetch('/api/config')
+          .then((r) => (r.ok ? r.json() : {}))
+          .catch(() => ({}));
+      }
+      return this._config;
+    },
 
     load() {
       if (this._ready) return this._ready;
-      const name = pickName();
-      const base = getJSON(`/themes/${BASE}/theme.json`).catch(() => ({}));
-      const own = name === BASE ? base : getJSON(`/themes/${name}/theme.json`).catch(() => {
-        console.warn(`[aam] theme "${name}" did not load — staying on ${BASE}`);
-        return {};
-      });
-      this._ready = Promise.all([base, own]).then(([b, o]) => {
-        this.data = merge(b, o);
-        this.name = this.data.name || name;
-        this.applyFavicon();
-        return this.data;
+      this._ready = this.config().then((server) => {
+        this.server = server || {};
+        const name = pickName(this.server);
+        const base = getJSON(`/themes/${BASE}/theme.json`).catch(() => ({}));
+        const own = name === BASE ? base : getJSON(`/themes/${name}/theme.json`).catch(() => {
+          console.warn(`[aam] theme "${name}" did not load — staying on ${BASE}`);
+          return {};
+        });
+        return Promise.all([base, own]).then(([b, o]) => {
+          this.data = merge(b, o);
+          this.name = this.data.name || name;
+          this.applyFavicon();
+          return this.data;
+        });
       });
       return this._ready;
     },
@@ -97,10 +119,17 @@
       link.href = href;
     },
 
-    /* 1 = the built-in radial map · 2 = google_based. ?ui= wins for one visit. */
+    /* 1 = the built-in radial map · 2 = google_based.
+       ?ui= (testing) > the server's UI_TYPE (the deployment) > the theme > 1.
+
+       Only meaningful once load() has resolved: before that the theme is not
+       here yet and this answers 1 for everything. Callers that build a map must
+       await load() first — map.html does, in aamBoot. */
     uiType() {
       const forced = parseInt(qs.get('ui'), 10);
       if (UI_TYPES.includes(forced)) return forced;
+      const fromServer = this.server && this.server.uiType;
+      if (UI_TYPES.includes(fromServer)) return fromServer;
       const t = parseInt(this.get('ui.type', 1), 10);
       return UI_TYPES.includes(t) ? t : 1;
     },

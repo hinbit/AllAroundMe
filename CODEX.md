@@ -51,9 +51,16 @@ server/  Express + MySQL
   backgrounds flooded out from the border (a global near-white cut would eat the pale outer arc).
   `/icons/*` + `/favicon.ico` are the same mark rendered per size; `theme.js` swaps `rel=icon` to
   the active theme's, over a static link so the tab is never blank.
-- Interface type: `theme.ui.type` — 1 = the built-in radial map, 2 = google_based. `?ui=1|2`
-  overrides for one visit. A provider that cannot mount (no key, Google down) falls back to 1 and
-  says so in the map subtitle: a map screen with no map is a dead end.
+- Interface type: the types are **defined server-side** (`config.uiTypes` in server/env.js,
+  published by `/api/config`) — 1 = the built-in radial map, 2 = google_based.
+  Precedence: `?ui=1|2` (testing) → the server's `UI_TYPE` (the deployment; overrides the theme so
+  a whole deployment can move to Google without editing any theme) → `theme.ui.type` → 1.
+  Likewise `CLIENT_THEME` sets the default theme. Both may be empty = let the client/theme decide.
+  A provider that cannot mount (no key, Google down) falls back to 1 and says so in the map
+  subtitle: a map screen with no map is a dead end.
+- The map is built in `aamBoot`, **after** the theme resolves — never at script-eval time. The
+  type is an answer that arrives over the network; asking before it lands silently yielded the
+  built-in map for every theme, and made `?ui=` look like the only thing that worked.
 - Splash: the theme names the animation; the server still picks the variant — visits==0 → full,
   else short, skip_splash → none; `prefers-reduced-motion` → none. An opaque animation
   (textanimation1) hides the app until it ends; a transparent one (simplefade1) plays over it.

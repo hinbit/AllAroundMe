@@ -6,17 +6,17 @@
 
    Ported from ClubMad's src/client/components/map/mapTypes.js — same idea, minus
    the bundler: this app has no build step, so the Google key comes from the
-   server at runtime instead of being baked in as import.meta.env. */
+   server at runtime instead of being baked in as import.meta.env. The type names
+   themselves are the server's (config.uiTypes, published by /api/config); this
+   file only maps them onto the providers that implement them. */
 (function () {
   'use strict';
 
   const MAP_PROVIDERS = { NATIVE: 'native', GOOGLE: 'google' };
 
-  /* theme.ui.type -> provider. Unknown types fall back to the built-in map,
-     which needs no key and no third party to be up. */
+  /* ui type -> provider. Unknown types fall back to the built-in map, which needs
+     no key and no third party to be up. */
   const UI_TYPE_PROVIDER = { 1: MAP_PROVIDERS.NATIVE, 2: MAP_PROVIDERS.GOOGLE };
-
-  let keyPromise = null;
 
   window.AAM_MAP_TYPES = {
     MAP_PROVIDERS,
@@ -34,21 +34,18 @@
       ring: '#16649e',
     },
 
+    /* Only truthful once AAM_THEME.load() has resolved — the type is the theme's
+       and the deployment's answer, and both arrive over the network. */
     getMapProvider() {
       const type = window.AAM_THEME ? AAM_THEME.uiType() : 1;
       return UI_TYPE_PROVIDER[type] || MAP_PROVIDERS.NATIVE;
     },
 
-    /* The browser key, served by /api/config. Resolves to '' when none is
-       configured — callers treat that as "this provider cannot run". */
+    /* The browser key, off the shared /api/config fetch. Resolves to '' when none
+       is configured — callers treat that as "this provider cannot run". */
     getGoogleMapsApiKey() {
-      if (!keyPromise) {
-        keyPromise = fetch('/api/config')
-          .then((r) => (r.ok ? r.json() : {}))
-          .then((c) => c.googleMapsApiKey || '')
-          .catch(() => '');
-      }
-      return keyPromise;
+      if (!window.AAM_THEME) return Promise.resolve('');
+      return AAM_THEME.config().then((c) => c.googleMapsApiKey || '');
     },
   };
 })();

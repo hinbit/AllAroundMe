@@ -65,6 +65,12 @@ theme omits falls back there, which is why the base must stay complete.
 | `?theme=canabolabs-maps` | same demo brand, `ui.type = 2` — the map screen drawn by Google Maps |
 | `?ui=2` on `/map.html` | force the Google map for one visit, whatever the theme says |
 
+The interface types are defined **on the server** (`config.uiTypes` in `server/env.js`, published
+by `/api/config`): `1` = the built-in radial map, `2` = `google_based`. The deployment picks in
+`.env` — `UI_TYPE='2'` puts every theme on Google Maps without editing any of them, and
+`CLIENT_THEME` sets the default theme. Leave either empty to let the theme decide. `?ui=` / `?theme=`
+still win, for testing.
+
 `ui.type = 2` needs `GOOGLE_MAPS_BROWSER_KEY` in `.env.credentials` (see
 `.env.credentials.example`). Without it those themes quietly fall back to the built-in map.
 

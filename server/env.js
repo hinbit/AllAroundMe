@@ -21,6 +21,26 @@ export const config = {
   publicUrl: e.PUBLIC_URL || '',
   eshkolotApi: String(e.ESHKOLOT_API_URL || 'http://127.0.0.1:3070/api').replace(/\/$/, ''),
   profileTtlDays: Number(e.PROFILE_TTL_DAYS || 90),
+  /* The interface types the app knows how to be. Defined here, on the server, so
+     the set is one list rather than a convention re-stated in each client file —
+     /api/config publishes it and js/map/mapTypes.js maps it onto providers.
+       1 native        the built-in radial map over OSM tiles
+       2 google_based  Google Maps JS API (needs googleMapsBrowserKey) */
+  uiTypes: { 1: 'native', 2: 'google_based' },
+
+  client: {
+    /* Which theme a plain visit gets, and which interface it runs on — the
+       deployment's call, not the browser's. Both may be left empty:
+         theme  empty -> the client's own default (allaroundme)
+         uiType empty -> whatever the chosen theme declares
+       A value here OVERRIDES the theme, so a deployment can put every theme on
+       Google Maps without editing any of them. ?theme= / ?ui= still win, for
+       testing. UI_TYPE is validated against uiTypes — an unknown value is
+       ignored rather than silently mounting nothing. */
+    theme: e.CLIENT_THEME || '',
+    uiType: [1, 2].includes(Number(e.UI_TYPE)) ? Number(e.UI_TYPE) : null,
+  },
+
   /* Browser key for the Google Maps JS API — only themes with ui.type 2 need it.
      Handed to the client by /api/config; empty = those themes fall back to the
      built-in map. Referrer-restrict it in the Google console.
