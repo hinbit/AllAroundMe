@@ -52,15 +52,17 @@ npm start
 
 Open http://localhost:4090 — add `?splash=full` to replay the full opening.
 
-Themes decide the brand, the open screen and which interface the app wears
-(`client/themes/<name>/theme.json`; `canabolabs` is the default and the fallback every other
-theme inherits from):
+Themes decide the brand, the open screen, the favicon and which interface the app wears
+(`client/themes/<name>/theme.json`). Two roles, deliberately separate: **`allaroundme` is what
+loads by default**, while **`canabolabs` is the base every theme is merged over** — so anything a
+theme omits falls back there, which is why the base must stay complete.
 
 | Try | What you get |
 | --- | --- |
-| `?theme=canabolabs` | the default — background + logo fading over the live app (`simplefade1`) |
+| *(nothing)* | the default `allaroundme` — the logo fading up over the live app and back off (`simplefade1`) |
 | `?theme=seach` | the original "we care 4 u 2 C each other all around" movie (`textanimation1`) |
-| `?theme=canabolabs-maps` | same brand, `ui.type = 2` — the map screen drawn by Google Maps |
+| `?theme=canabolabs` | the demo brand + base theme — background artwork with the logo on it |
+| `?theme=canabolabs-maps` | same demo brand, `ui.type = 2` — the map screen drawn by Google Maps |
 | `?ui=2` on `/map.html` | force the Google map for one visit, whatever the theme says |
 
 `ui.type = 2` needs `GOOGLE_MAPS_BROWSER_KEY` in `.env.credentials` (see

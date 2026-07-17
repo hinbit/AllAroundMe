@@ -1,0 +1,31 @@
+{
+  "id": "textanimation1",
+  "type": "textstages",
+  "label": "The 'we care 4 u 2 C each other all around' opening",
+
+  "//": "The original hand-coded opening, lifted out of index.html and turned into data. It paints over the app (opaque) and the home screen only appears once it is done. Timings that used to hide behind a `fast` flag are now written out per stage.",
+
+  "opaque": true,
+  "tremble": true,
+  "skip": { "tap": false, "buttons": true },
+
+  "variants": {
+    "full": [
+      { "type": "type1", "text": "we are seach medical ...", "speed": 85, "hold": 700 },
+      { "type": "word", "text": "we", "hold": 480 },
+      { "type": "word", "text": "care", "hold": 480 },
+      { "type": "word", "text": "4", "hold": 480 },
+      { "type": "word", "text": "u", "hold": 480 },
+      { "type": "word", "text": "2", "hold": 480 },
+      { "type": "eyec", "look": 2200, "morph": 800 },
+      { "type": "word", "text": "each other", "hold": 480 },
+      { "type": "word", "text": "all around", "hold": 480 },
+      { "type": "target", "hold": 1200 }
+    ],
+    "short": [
+      { "type": "type1", "text": "we are seach medical", "speed": 28, "hold": 200 },
+      { "type": "eyec", "look": 900, "morph": 300 },
+      { "type": "target", "hold": 1200 }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+<!-- Demo logo for the canabolabs theme. Placeholder artwork: replace with the real
+     brand logo. Keep the transparent background — the open screen composites it
+     straight onto the theme background image. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 260" width="640" height="260" role="img" aria-label="Canabolabs">
+  <defs>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a8ffd6"/>
+      <stop offset="1" stop-color="#2fae74"/>
+    </linearGradient>
+  </defs>
+
+  <!-- leaf inside a flask: the lab half of the name -->
+  <g transform="translate(320 74)">
+    <g fill="url(#leaf)">
+      <path d="M0-56C6-34 18-18 34-8 18-6 6 2 0 14-6 2-18-6-34-8-18-18-6-34 0-56z"/>
+      <path d="M0-6c14 8 30 10 46 6-8 14-22 24-38 26-2-11-5-22-8-32z" opacity=".85"/>
+      <path d="M0-6c-14 8-30 10-46 6 8 14 22 24 38 26 2-11 5-22 8-32z" opacity=".85"/>
+    </g>
+    <path d="M0 14v22" stroke="#2fae74" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g fill="none" stroke="#7dffc4" stroke-opacity=".55" stroke-width="5" stroke-linejoin="round">
+    <path d="M296 40v34l-38 66h124l-38-66V40z"/>
+    <path d="M286 40h68"/>
+  </g>
+
+  <text x="320" y="206" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif"
+        font-size="60" font-weight="700" letter-spacing="7" fill="#eafff5">CANABOLABS</text>
+  <text x="320" y="240" text-anchor="middle" font-family="'Segoe UI', Arial, sans-serif"
+        font-size="21" letter-spacing="10" fill="#6fd8a6">RESEARCH · CARE</text>
+</svg>

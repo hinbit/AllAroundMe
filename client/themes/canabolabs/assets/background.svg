@@ -1,0 +1,42 @@
+<!-- Demo background for the canabolabs theme. Placeholder artwork: replace with
+     the real brand background at the same aspect ratio (9:16 portrait). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" width="1080" height="1920" role="img" aria-label="Canabolabs background">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#04231a"/>
+      <stop offset=".55" stop-color="#0a3d2a"/>
+      <stop offset="1" stop-color="#06180f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".42" r=".62">
+      <stop offset="0" stop-color="#5fe3a1" stop-opacity=".38"/>
+      <stop offset=".6" stop-color="#2fae74" stop-opacity=".10"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="90" height="90" patternUnits="userSpaceOnUse">
+      <path d="M90 0H0V90" fill="none" stroke="#7dffc4" stroke-opacity=".07" stroke-width="1.5"/>
+    </pattern>
+  </defs>
+
+  <rect width="1080" height="1920" fill="url(#sky)"/>
+  <rect width="1080" height="1920" fill="url(#grid)"/>
+  <rect width="1080" height="1920" fill="url(#glow)"/>
+
+  <!-- lab glassware silhouettes, very low contrast -->
+  <g fill="none" stroke="#8affd0" stroke-opacity=".13" stroke-width="4">
+    <path d="M300 1500v-150l-90-150h270l-90 150v150z"/>
+    <path d="M210 1200h270"/>
+    <path d="M760 1520v-260a60 60 0 1 1 120 0v260z"/>
+    <path d="M760 1380h120"/>
+  </g>
+
+  <!-- molecule motif -->
+  <g stroke="#7dffc4" stroke-opacity=".18" stroke-width="3" fill="#7dffc4" fill-opacity=".18">
+    <path d="M540 380l130 75v150l-130 75-130-75V455z" fill="none"/>
+    <circle cx="540" cy="380" r="12"/>
+    <circle cx="670" cy="455" r="12"/>
+    <circle cx="670" cy="605" r="12"/>
+    <circle cx="540" cy="680" r="12"/>
+    <circle cx="410" cy="605" r="12"/>
+    <circle cx="410" cy="455" r="12"/>
+  </g>
+</svg>

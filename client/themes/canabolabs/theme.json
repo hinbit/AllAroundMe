@@ -1,0 +1,29 @@
+{
+  "name": "canabolabs",
+  "label": "Canabolabs",
+
+  "//": "canabolabs is the base theme: every other theme is deep-merged ON TOP of this one, so anything a theme leaves out (an asset, a colour, a logo position) falls back to the value here. Keep this file complete — it is the only theme allowed to have no gaps.",
+
+  "ui": {
+    "//": "1 = the built-in radial map over OSM tiles · 2 = google_based (Google Maps JS API). See client/js/map/mapTypes.js.",
+    "type": 1
+  },
+
+  "openScreen": {
+    "//": "Which client/animations/<id>.json plays on entry. Per-theme overrides of the animation's own fields go here.",
+    "animation": "simplefade1"
+  },
+
+  "assets": {
+    "background": "/themes/canabolabs/assets/background.svg",
+    "logo": "/themes/canabolabs/assets/logo.svg",
+    "//favicon": "The tab icon. Themes that ship no favicon of their own land here, so this must resolve to something — see js/theme.js.",
+    "favicon": "/themes/canabolabs/assets/logo.svg"
+  },
+
+  "colors": {
+    "ink": "#eafff5",
+    "accent": "#2fae74",
+    "backdrop": "#04231a"
+  }
+}

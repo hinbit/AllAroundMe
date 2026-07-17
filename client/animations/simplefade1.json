@@ -1,0 +1,20 @@
+{
+  "id": "simplefade1",
+  "type": "simplefade",
+  "label": "Background + logo, fades in and back out over the live app",
+
+  "//": "A branded card — the theme's background image with the theme's logo placed on it — that fades up over the running app and then fades away again, leaving the app it was always sitting on top of. `asset` names are resolved through the active theme's `assets` block, so a theme only supplies the two images and inherits the choreography.",
+
+  "opaque": false,
+  "tremble": false,
+  "skip": { "tap": true, "buttons": true },
+
+  "background": { "asset": "background", "fit": "cover", "position": "center" },
+
+  "//logo": "x/y place the logo's CENTRE on the background; width is relative to the screen. Any CSS length works — a theme may override the whole block via openScreen.logo.",
+  "logo": { "asset": "logo", "x": "50%", "y": "42%", "width": "62%" },
+
+  "fadeInMs": 2500,
+  "holdMs": 0,
+  "fadeOutMs": 2500
+}

@@ -1,0 +1,37 @@
+{
+  "name": "allaroundme",
+  "label": "AllAroundMe · מסביב",
+
+  "//": "The product's own brand, and the theme that loads when nothing else is asked for. Like every theme it is deep-merged over canabolabs, so anything it omits resolves there.",
+
+  "ui": {
+    "type": 1
+  },
+
+  "openScreen": {
+    "animation": "simplefade1",
+
+    "//": "The brand is a mark on plain white, not a piece of artwork with edges — so there is no background image ('background': null) and the backdrop colour below fills the screen. The card itself rides in as the logo, which keeps it sharp at any size and leaves no seam where a fitted image would have stopped.",
+    "background": null,
+    "logo": { "asset": "openScreen", "x": "50%", "y": "50%", "width": "76%" }
+  },
+
+  "assets": {
+    "//openScreen": "The full lockup — pin, arcs and wordmark — background removed.",
+    "openScreen": "/themes/allaroundme/assets/open-screen.png",
+
+    "//mark": "The pin on its own, background removed — the app image. /icons/* is this same mark, rendered out at each size the browser and the PWA installer ask for.",
+    "logo": "/themes/allaroundme/assets/mark.png",
+    "favicon": "/icons/icon-192.png",
+
+    "//lockups": "The horizontal logo, for anywhere the wordmark has to sit next to the mark. Two cuts because the wordmark flips white on dark.",
+    "logoWide": "/themes/allaroundme/assets/logo-light.png",
+    "logoWideDark": "/themes/allaroundme/assets/logo-dark.png"
+  },
+
+  "colors": {
+    "ink": "#0f3b3a",
+    "accent": "#f47b28",
+    "backdrop": "#fcfcfc"
+  }
+}

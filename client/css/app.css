@@ -39,12 +39,29 @@ body {
   100% { transform: translate(0,0); }
 }
 
-/* ---- splash ---------------------------------------------------------------- */
+/* ---- splash -----------------------------------------------------------------
+   Two shapes, built by js/splash.js from the animation the theme names:
+   .opaque covers the app until it is done · a transparent one fades over a live
+   app. See client/animations/*.json. */
 #aam-splash {
-  position: fixed; inset: 0; z-index: 1000; background: #fdfefe;
-  display: flex; flex-direction: column; padding: 10vh 8vw;
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; flex-direction: column;
+}
+#aam-splash.opaque {
+  background: #fdfefe; padding: 10vh 8vw;
   direction: ltr; text-align: left;
 }
+
+/* ---- splash · simplefade ---------------------------------------------------- */
+#aam-splash.simplefade .bg {
+  position: absolute; inset: 0; background-repeat: no-repeat;
+}
+#aam-splash.simplefade .logo {
+  position: absolute; transform: translate(-50%, -50%);
+  max-width: 92%; max-height: 80%; object-fit: contain;
+}
+#aam-splash.simplefade .skip-row { margin-top: auto; padding-bottom: 4vh; }
+
 #aam-splash .line1 {
   font-size: clamp(22px, 5.5vw, 44px); font-weight: 200; letter-spacing: .14em;
   color: #1b3a52; min-height: 1.4em; white-space: pre;

@@ -8,14 +8,23 @@ doctor questionnaire platform.
 ## Architecture
 ```
 client/  static, no build step (vanilla JS, RTL/LTR, PWA)
-  index.html    splash (full/short/none by cookie) + home + tag-tree finder + points + phone claim
+  index.html    open screen + home + tag-tree finder + points + phone claim
   map.html      the round-table live map, adapted (tracking, uid on analyze, ?tags= deep link)
   reviews.html  rating flow (stars / 5 domains) + gated feed + review-on-review + flags + replies
   doctor.html   doctor dashboard (questionnaires, issue, reports, review inbox, shares, analytics, digest settings)
   js/app.js     AAM core: aam_uid cookie (rolling 90d), /api/session handshake, event queue, setUid
   js/i18n.js    he/en/ar/ru dictionary + dir switching + 🌐 picker (?lang= or #aam-lang)
+  js/theme.js   active theme, deep-merged over the canabolabs base (?theme=, ?ui=)
+  js/splash.js  open-screen engine: plays the animation the theme names
   js/sound.js   press/release blips + per-page ambience + volume/mute widget
   js/fx.js      press/release burst animation (or per-element GIF)
+  js/map/       map provider layer (ported from ClubMad's MapProviderFactory)
+    mapTypes.js          constants + ui.type -> provider + the Google browser key
+    factory.js           mounts the theme's provider; falls back to native if it cannot
+    providers/native.js  ui.type 1 — the bespoke radial projection over OSM tiles
+    providers/google.js  ui.type 2 — google_based (Maps JS API via a script tag)
+  themes/<name>/theme.json   brand + ui.type + which open screen; canabolabs is the base
+  animations/<id>.json       open screens: textanimation1 (the movie), simplefade1 (bg+logo fade)
 server/  Express + MySQL
   index.js               static + health + /api/public/* proxy to Eshkolot (analyze intercepted) + scheduler
   routes/track.js        sessions, events, profile, points, badges, chosen doctors, action-taken,
@@ -25,6 +34,7 @@ server/  Express + MySQL
   routes/reviews.js      reviews + visibility rules + meta-reviews + verified_visit + abuse flags
   routes/doctors.js      JWT auth, questionnaires, super-blend, issue+deliver, reports, review
                          inbox + right-of-reply, shares, analytics, digest settings
+  routes/config.js       /api/config — public client config (Google Maps browser key). No secrets.
   routes/hooks.js        Meta webhook + generic wa-inbound + answers/sent webhooks (external bots)
   services/whatsapp.js   transport (log/cloud/webhook), outbox dispatch, one-question-at-a-time chat
   services/mailer.js     SMTP via nodemailer, log fallback
@@ -33,7 +43,20 @@ server/  Express + MySQL
 ```
 
 ## Key rules encoded
-- Splash: visits==0 → full, else short, skip_splash → none; `prefers-reduced-motion` → none.
+- Themes: `client/themes/<name>/theme.json`, chosen by `?theme=` (remembered) → localStorage →
+  `allaroundme`. Every theme is deep-merged **on top of canabolabs**, so anything it omits (asset,
+  colour, open screen, favicon) resolves there — which is why canabolabs must stay complete.
+  Default ≠ base: `allaroundme` is what loads, `canabolabs` is what fills the gaps.
+- Brand assets: `themes/allaroundme/assets/` — the supplied PNGs with their painted-on white
+  backgrounds flooded out from the border (a global near-white cut would eat the pale outer arc).
+  `/icons/*` + `/favicon.ico` are the same mark rendered per size; `theme.js` swaps `rel=icon` to
+  the active theme's, over a static link so the tab is never blank.
+- Interface type: `theme.ui.type` — 1 = the built-in radial map, 2 = google_based. `?ui=1|2`
+  overrides for one visit. A provider that cannot mount (no key, Google down) falls back to 1 and
+  says so in the map subtitle: a map screen with no map is a dead end.
+- Splash: the theme names the animation; the server still picks the variant — visits==0 → full,
+  else short, skip_splash → none; `prefers-reduced-motion` → none. An opaque animation
+  (textanimation1) hides the app until it ends; a transparent one (simplefade1) plays over it.
   Cookie+profile expire after `PROFILE_TTL_DAYS` (90) days without use — then the person starts over.
 - Points: +1 visit, +2 search, +3 choose doctor, +5 review, +2 meta-review. Badges in track.js.
 - Review feed: 0 reviews → locked; 1-2 → 3-4 random; 3+ → daily top. `status='flagged'` (3 distinct

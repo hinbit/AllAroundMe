@@ -1,0 +1,19 @@
+{
+  "name": "seach",
+  "label": "Seach Medical · מסביב",
+
+  "//": "The original brand. Deliberately sparse: everything absent here (assets, colours) resolves from the canabolabs base theme. What it does own is the opening — the ten-stage 'we care 4 u 2 C each other all around' movie.",
+
+  "ui": {
+    "type": 1
+  },
+
+  "openScreen": {
+    "animation": "textanimation1"
+  },
+
+  "assets": {
+    "//favicon": "The original 🎯 target mark, kept with the theme it belongs to.",
+    "favicon": "/icons/icon.svg"
+  }
+}

@@ -6,22 +6,16 @@
 <title>מסביב · AllAroundMe</title>
 <meta name="description" content="We are seach Medical — We Care 4 U 2 See each other All around 🎯">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
 <meta name="theme-color" content="#fdfefe">
 <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
 <div class="aam-waves"></div>
 
-<!-- ============================== splash ============================== -->
-<div id="aam-splash" style="display:none">
-  <div class="line1" id="spLine1"></div>
-  <div class="line2" id="spLine2"></div>
-  <div class="skip-row">
-    <button id="spSkip" data-i18n="splash.skip">דלג ›</button>
-    <button id="spNever" data-i18n="splash.never">עזבו אותי — בלי מסך פתיחה יותר</button>
-  </div>
-</div>
+<!-- The open screen is built by js/splash.js from the animation the active theme
+     names (client/themes/<name>/theme.json -> client/animations/<id>.json). -->
 
 <!-- ============================== home ============================== -->
 <div class="aam-page" id="home" style="display:none">
@@ -72,96 +66,16 @@
 </div>
 
 <script src="/js/i18n.js"></script>
+<script src="/js/theme.js"></script>
 <script src="/js/app.js"></script>
+<script src="/js/splash.js"></script>
 <script src="/js/sound.js"></script>
 <script src="/js/fx.js"></script>
 <script>
 (function () {
   'use strict';
   const $ = (s) => document.querySelector(s);
-  const splashEl = $('#aam-splash'), homeEl = $('#home');
-
-  // ------------------------------------------------------------- splash ----
-  // full = the 10-stage movie-style opening; short = 3 quick stages; none = straight in.
-  const STAGES_FULL = [
-    { type: 'type1', text: 'we are seach medical ...' },
-    { type: 'word', text: 'we' }, { type: 'word', text: 'care' },
-    { type: 'word', text: '4' }, { type: 'word', text: 'u' },
-    { type: 'word', text: '2' }, { type: 'eyec' },
-    { type: 'word', text: 'each other' },
-    { type: 'word', text: 'all around' },
-    { type: 'target' },
-  ];
-  const STAGES_SHORT = [
-    { type: 'type1', text: 'we are seach medical', fast: true },
-    { type: 'eyec', fast: true },
-    { type: 'target' },
-  ];
-
-  let splashDone = false;
-  function endSplash() {
-    if (splashDone) return;
-    splashDone = true;
-    document.body.classList.remove('aam-tremble');
-    splashEl.style.transition = 'opacity .7s';
-    splashEl.style.opacity = '0';
-    setTimeout(() => { splashEl.style.display = 'none'; showHome(); }, 700);
-    AAM.track('splash_done');
-  }
-
-  function typewriter(el, text, speed) {
-    return new Promise((resolve) => {
-      let i = 0;
-      const t = setInterval(() => {
-        el.textContent = text.slice(0, ++i);
-        if (i >= text.length) { clearInterval(t); resolve(); }
-      }, speed);
-    });
-  }
-
-  async function playSplash(variant) {
-    splashEl.style.display = 'flex';
-    document.body.classList.add('aam-tremble');
-    const stages = variant === 'short' ? STAGES_SHORT : STAGES_FULL;
-    const line1 = $('#spLine1'), line2 = $('#spLine2');
-    for (const st of stages) {
-      if (splashDone) return;
-      if (st.type === 'type1') {
-        await typewriter(line1, st.text, st.fast ? 28 : 85);
-        await pause(st.fast ? 200 : 700);
-      } else if (st.type === 'word') {
-        const w = document.createElement('span');
-        w.className = 'word'; w.textContent = st.text + '  ';
-        line2.appendChild(w);
-        requestAnimationFrame(() => w.classList.add('on'));
-        await pause(480);
-      } else if (st.type === 'eyec') {
-        const w = document.createElement('span');
-        w.className = 'word eye-c';
-        w.innerHTML = '<span class="c-char">C</span><span class="pupil"></span><span class="s-tail">’s</span>&nbsp;&nbsp;';
-        line2.appendChild(w);
-        requestAnimationFrame(() => w.classList.add('on'));
-        await pause(st.fast ? 900 : 2200);   // the eye looks around...
-        w.classList.add('morphed');          // ...then C becomes C's
-        await pause(st.fast ? 300 : 800);
-      } else if (st.type === 'target') {
-        const w = document.createElement('span');
-        w.className = 'word target'; w.textContent = '🎯';
-        line2.appendChild(w);
-        requestAnimationFrame(() => w.classList.add('on'));
-        await pause(1200);
-      }
-    }
-    endSplash();
-  }
-  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  $('#spSkip').addEventListener('click', () => { AAM.track('splash_skip'); endSplash(); });
-  $('#spNever').addEventListener('click', () => {
-    AAM.track('splash_never');
-    AAM.skipSplashForever();
-    endSplash();
-  });
+  const homeEl = $('#home');
 
   // ------------------------------------------------------------- home ------
   function showHome() {
@@ -169,6 +83,13 @@
     const p = AAM.profile;
     $('#pointsTeaser').textContent = p
       ? `${p.points} ${AAM_T('points.points')} · ${p.searches} ${AAM_T('points.searches')}` : '';
+  }
+
+  /* Anything that wants to be *noticed* waits for the open screen to clear.
+     Under a transparent opening the home screen is already up while the brand is
+     still fading, and a badge toast fired then just lands on top of the logo and
+     is gone before the user is looking at the app. */
+  function greet() {
     for (const b of AAM.newBadges || []) toast(`${b.icon || '🏅'} ${AAM_T('badge.new')}: ${b.label}`);
     renderRatePrompt();
   }
@@ -418,13 +339,10 @@
   }
 
   // ------------------------------------------------------------- boot ------
-  AAM.hello().then(() => {
-    const forced = new URLSearchParams(location.search).get('splash'); // ?splash=full לבדיקה
-    // prefers-reduced-motion: no movie, straight to the content (unless forced)
-    const variant = forced || (AAM.reducedMotion ? 'none' : AAM.splash);
-    if (variant === 'none') showHome();
-    else playSplash(variant);
-  });
+  // The theme picks the opening (?splash=full לבדיקה, ?theme=<name> to switch
+  // brand). Whether the home screen appears under the overlay or only once it
+  // has finished is the animation's business — hence the two hooks.
+  AAM.hello().then(() => AAM_SPLASH.play({ onReveal: showHome, onDone: greet }));
 })();
 </script>
 </body>

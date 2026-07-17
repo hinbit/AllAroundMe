@@ -1,0 +1,10 @@
+{
+  "name": "canabolabs-maps",
+  "label": "Canabolabs · Google Maps",
+
+  "//": "Same brand as canabolabs — assets, colours and the opening all fall back to it. The only thing this theme changes is the interface type: the map screen is rendered by Google Maps instead of the built-in radial map.",
+
+  "ui": {
+    "type": 2
+  }
+}
