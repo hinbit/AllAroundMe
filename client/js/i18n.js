@@ -9,7 +9,6 @@
     he: {
       dir: 'rtl', name: 'עברית',
       'brand.he': 'בעברית קוראים לזה מסביב',
-      'music.toggle': 'מוזיקת רקע',
       'menu.map': 'מפה מסביב', 'menu.map.sub': 'כל שירותי הרפואה סביבך — מהאלפון החי של אשכולות',
       'menu.finder': 'איתור רופא לפי תחום', 'menu.finder.sub': 'עץ בחירה מהיר: התמחות ← איזור בגוף ← תגיות',
       'menu.voice': 'ספרו לנו מה קרה', 'menu.voice.sub': 'הקלטה קולית ← תמלול ← המלצת AI ← רופאים במפה',
@@ -48,7 +47,6 @@
     en: {
       dir: 'ltr', name: 'English',
       'brand.he': 'in Hebrew we call it Misaviv — all around',
-      'music.toggle': 'Background music',
       'menu.map': 'Map around me', 'menu.map.sub': 'Every medical service near you — from the live Eshkolot directory',
       'menu.finder': 'Find a doctor by field', 'menu.finder.sub': 'Quick tree: specialty → body area → tags',
       'menu.voice': 'Tell us what happened', 'menu.voice.sub': 'Voice note → transcript → AI advice → doctors on the map',
@@ -87,7 +85,6 @@
     ar: {
       dir: 'rtl', name: 'العربية',
       'brand.he': 'بالعبرية نسمّيها مِسافيف — من حولك',
-      'music.toggle': 'موسيقى الخلفية',
       'menu.map': 'خريطة من حولي', 'menu.map.sub': 'كل الخدمات الطبية القريبة منك — من دليل إشكولوت الحي',
       'menu.finder': 'ابحث عن طبيب حسب المجال', 'menu.finder.sub': 'شجرة سريعة: تخصص ← منطقة الجسم ← وسوم',
       'menu.voice': 'أخبرنا ماذا حدث', 'menu.voice.sub': 'تسجيل صوتي ← نص ← توصية ذكاء اصطناعي ← أطباء على الخريطة',
@@ -126,7 +123,6 @@
     ru: {
       dir: 'ltr', name: 'Русский',
       'brand.he': 'на иврите это называется Мисавив — вокруг',
-      'music.toggle': 'Фоновая музыка',
       'menu.map': 'Карта вокруг меня', 'menu.map.sub': 'Все медицинские службы рядом — из живого справочника Эшколот',
       'menu.finder': 'Найти врача по области', 'menu.finder.sub': 'Быстрое дерево: специальность → часть тела → теги',
       'menu.voice': 'Расскажите, что случилось', 'menu.voice.sub': 'Голос → расшифровка → совет ИИ → врачи на карте',

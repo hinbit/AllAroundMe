@@ -32,9 +32,6 @@
     <div id="aam-lang"></div>
   </div>
 
-  <button id="aam-music" class="music-toggle" hidden aria-pressed="false"
-          title="מוזיקת רקע" data-i18n-title="music.toggle">🔈</button>
-
   <div id="ratePromptBox"></div>
 
   <nav aria-label="תפריט ראשי">
@@ -368,116 +365,8 @@
     };
   }
 
-  // ------------------------------------------------------------ music ------
-  // Background music comes from a library: /assets/audio/tracks.json lists the
-  // tracks, we pick one at random and move to another random one when it ends,
-  // so the loop is over the library rather than over a single file. Behaviour
-  // that keeps it from ambushing anyone: browsers refuse unmuted autoplay
-  // without a gesture (so we retry on the first one), reduced-motion users get
-  // silence, and the on/off choice is remembered.
-  const MUSIC_DIR = '/assets/audio/';
-  let music = null, TRACKS = [], lastTrack = -1, nextTrack = () => {};
-
-  /* prefers-reduced-motion is about motion, not sound, and there is no media
-     query for "no audio" — so it sets the *default* (start silent) rather than
-     removing the choice. It used to bail out of initMusic() entirely, which left
-     those users with no music and no button to ask for any. */
-  function musicWanted() {
-    const saved = localStorage.getItem('aam_music');
-    if (saved) return saved !== 'off';
-    return !AAM.reducedMotion;
-  }
-
-  // avoid repeating the track we just played, unless it is the only one we have
-  function pickTrack() {
-    if (TRACKS.length < 2) return 0;
-    let i;
-    do { i = Math.floor(Math.random() * TRACKS.length); } while (i === lastTrack);
-    return i;
-  }
-
-  async function loadTracks() {
-    try {
-      const res = await fetch(MUSIC_DIR + 'tracks.json', { cache: 'no-cache' });
-      if (!res.ok) return [];
-      const list = await res.json();
-      return Array.isArray(list) ? list.filter((t) => t && t.file) : [];
-    } catch { return []; }        // no library deployed — stay quiet, stay hidden
-  }
-
-  async function initMusic() {
-    const btn = $('#aam-music');
-    TRACKS = await loadTracks();
-    if (!TRACKS.length) return;               // nothing to play, no toggle shown
-
-    music = new Audio();
-    music.volume = 0.35;                      // background, not foreground
-    /* preload='none', not 'auto': audio never blocks rendering either way, but
-       'auto' pulls the whole track down the moment the page loads, competing
-       with the map tiles and API calls for a phone's bandwidth. With 'none' the
-       browser fetches only once we actually play, and then streams it in ranges
-       (express.static answers 206) — so playback starts after a few KB instead
-       of waiting for megabytes. A muted visitor downloads nothing at all. */
-    music.preload = 'none';
-
-    // a track that fails to load must not kill the library — drop it and move on
-    music.addEventListener('error', () => {
-      TRACKS.splice(lastTrack, 1);
-      if (!TRACKS.length) { btn.hidden = true; music = null; return; }
-      if (musicWanted()) nextTrack();
-    });
-    /* Show the toggle because the library has tracks — not on 'canplay', which
-       with preload='none' never fires for a muted visitor, leaving them no way
-       to turn the music back on. */
-    btn.hidden = false;
-    music.addEventListener('ended', nextTrack);   // ended => another random one
-
-    // paint from the element's own events: play() marks the audio unpaused
-    // *before* it may reject, so asking .paused right after it lies to us.
-    const paint = () => {
-      const on = !!music && !music.paused;
-      btn.textContent = on ? '🔊' : '🔈';
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-    };
-    music.addEventListener('play', paint);
-    music.addEventListener('pause', paint);
-
-    const tryPlay = () => music && music.play().catch(paint);
-
-    // load a random track and play it; `ended` brings us back here for the next
-    nextTrack = () => {
-      if (!music || !TRACKS.length) return;
-      lastTrack = pickTrack();
-      music.src = MUSIC_DIR + TRACKS[lastTrack].file;
-      /* Deliberately no music.load(): load() starts fetching immediately and
-         overrides preload='none', which had a muted visitor pulling the whole
-         track down for nothing. Setting src is enough — play() fetches when
-         (and only when) we actually want sound. */
-      if (musicWanted()) tryPlay();
-      const t = TRACKS[lastTrack];
-      btn.title = (t.title || t.file) + (t.credit ? ' — ' + t.credit : '');
-    };
-
-    btn.addEventListener('click', () => {
-      if (!music) return;
-      if (music.paused) { localStorage.setItem('aam_music', 'on'); tryPlay(); AAM.track('music_on'); }
-      else { music.pause(); localStorage.setItem('aam_music', 'off'); AAM.track('music_off'); }
-    });
-
-    nextTrack();          // first random pick
-    if (musicWanted()) {
-      tryPlay();
-      // autoplay blocked? the next tap/key anywhere is our opening
-      const kick = () => { if (musicWanted() && music && music.paused) tryPlay(); };
-      addEventListener('pointerdown', kick, { once: true });
-      addEventListener('keydown', kick, { once: true });
-    }
-    paint();
-  }
-
   // ------------------------------------------------------------- boot ------
   AAM.hello().then(() => {
-    initMusic();
     const forced = new URLSearchParams(location.search).get('splash'); // ?splash=full לבדיקה
     // prefers-reduced-motion: no movie, straight to the content (unless forced)
     const variant = forced || (AAM.reducedMotion ? 'none' : AAM.splash);

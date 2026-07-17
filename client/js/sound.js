@@ -1,10 +1,14 @@
 /* AllAroundMe sound engine.
    - Synthesized click on press + softer tick on release for every interactive element.
-   - Per-page ambient music: soft generative pad by default, or an mp3 the page
-     declares via <body data-ambience="/sounds/xxx.mp3">. Any element can switch
-     the ambience with data-ambience on itself.
+   - Per-page ambient music, chosen with <body data-ambience="...">:
+       (not declared)        -> the track library, /assets/audio/tracks.json
+       ""                    -> silence
+       "/path/tracks.json"   -> that library: one track at random, another when it ends
+       "/path/track.mp3"     -> that single track, looped
+       "generative"          -> the synthesized pad (see startGenerativeAmbience)
+     Any element can switch the ambience with data-ambience on itself.
    - Floating volume widget: ambience volume slider + global mute toggle,
-     persisted in localStorage. */
+     persisted in localStorage. One control for all of the above. */
 (function () {
   'use strict';
 
@@ -71,12 +75,63 @@
     }
   }
 
+  function newAmbAudio() {
+    const a = new Audio();
+    /* preload='none', not the default 'auto': 'auto' pulls the whole track down
+       on page load, competing with the map tiles for a phone's bandwidth. A
+       muted visitor then transfers nothing at all. Note we never call load(),
+       which would force the fetch and defeat this — setting src is enough. */
+    a.preload = 'none';
+    a.volume = store.muted ? 0 : store.volume;
+    return a;
+  }
+
   function startMp3Ambience(src) {
     stopAmbience();
-    ambAudio = new Audio(src);
+    ambAudio = newAmbAudio();
     ambAudio.loop = true;
-    ambAudio.volume = store.muted ? 0 : store.volume;
+    ambAudio.src = src;
     ambAudio.play().catch(() => {});
+  }
+
+  // -- track library ----------------------------------------------------------
+  // One track at random, then a different one when it ends: the loop is over the
+  // library rather than over a single file.
+  let LIB = [], libLast = -1, libBase = '';
+
+  function pickLib() {
+    if (LIB.length < 2) return 0;
+    let i;
+    do { i = Math.floor(Math.random() * LIB.length); } while (i === libLast);
+    return i;
+  }
+
+  function playNextFromLib() {
+    if (!ambAudio || !LIB.length) return;
+    libLast = pickLib();
+    ambAudio.src = libBase + LIB[libLast].file;
+    ambAudio.play().catch(() => {});   // autoplay may be blocked; firstGesture retries
+  }
+
+  async function startLibraryAmbience(url) {
+    stopAmbience();
+    libBase = url.replace(/[^/]*$/, '');
+    try {
+      const res = await fetch(url, { cache: 'no-cache' });
+      if (!res.ok) return;                       // no library deployed -> silence
+      const list = await res.json();
+      LIB = Array.isArray(list) ? list.filter((t) => t && t.file) : [];
+    } catch (e) { LIB = []; }
+    if (!LIB.length) return;                     // nothing to play, and no pad
+    ambAudio = newAmbAudio();
+    ambAudio.addEventListener('ended', playNextFromLib);
+    // a track that 404s must not kill the library: drop it and move on
+    ambAudio.addEventListener('error', () => {
+      if (libLast >= 0) LIB.splice(libLast, 1);
+      libLast = -1;
+      if (LIB.length) playNextFromLib();
+    });
+    playNextFromLib();
   }
 
   function stopAmbience() {
@@ -85,9 +140,18 @@
     if (ambAudio) { ambAudio.pause(); ambAudio = null; }
   }
 
+  const DEFAULT_LIBRARY = '/assets/audio/tracks.json';
+
   function setAmbience(src) {
-    if (src && /\.(mp3|ogg|wav)(\?|$)/.test(src)) startMp3Ambience(src);
-    else startGenerativeAmbience(src ? src.length : location.pathname.length);
+    if (src === '' || src == null) { stopAmbience(); return; }   // declared silent
+    if (/\.json(\?|$)/.test(src)) { startLibraryAmbience(src); return; }
+    if (/\.(mp3|ogg|wav)(\?|$)/.test(src)) { startMp3Ambience(src); return; }
+    /* The pad is opt-in now. It used to be the default for every page, which put
+       a sustained 110-176Hz drone under everything — inaudible as intended on
+       desktop speakers, but a phone cannot reproduce those frequencies and
+       renders them as a buzz that reads as static. */
+    if (src === 'generative') { startGenerativeAmbience(location.pathname.length); return; }
+    startGenerativeAmbience(src.length);
   }
 
   function applyVolume() {
@@ -122,7 +186,12 @@
   function firstGesture() {
     if (ambStarted) return;
     ambStarted = true;
-    if (!store.muted) setAmbience(document.body.dataset.ambience || '');
+    if (store.muted) return;
+    /* undefined = the page declared nothing -> the library; "" = declared silent.
+       `|| ''` used to collapse those two, so doctor.html's data-ambience=""
+       asked for silence and got the pad anyway. */
+    const declared = document.body.dataset.ambience;
+    setAmbience(declared === undefined ? DEFAULT_LIBRARY : declared);
   }
 
   function isInteractive(el) {
