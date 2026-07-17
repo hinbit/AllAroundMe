@@ -48,6 +48,7 @@
     <div class="tabs">
       <span class="chip on" data-tab="qs">📋 שאלונים</span>
       <span class="chip" data-tab="new">➕ שאלון חדש</span>
+      <span class="chip mgr" data-tab="book" hidden>📖 ספר טלפונים</span>
       <span class="chip" data-tab="reviews">⭐ ביקורות עליי</span>
       <span class="chip" data-tab="shares">🤝 שיתופי מידע</span>
       <span class="chip" data-tab="analytics">📊 שימוש באפליקציה</span>
@@ -55,6 +56,7 @@
     </div>
 
     <div id="tab-qs"></div>
+    <div id="tab-book" style="display:none"></div>
 
     <div id="tab-new" style="display:none">
       <div class="card">
@@ -99,6 +101,10 @@
   'use strict';
   const $ = (s) => document.querySelector(s);
   const $$ = (s) => [...document.querySelectorAll(s)];
+  // Phonebook rows are built from alphon data — someone else's database — and
+  // go into innerHTML. Escape anything from there before it becomes markup.
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let token = sessionStorage.getItem('aam_doc_token') || '';
   let me = null;
 
@@ -114,7 +120,7 @@
       return j;
     });
 
-  const ROLE_HE = { doctor: 'רופא/ה', clinic_owner: 'בעל/ת מרפאה', trial_manager: 'מנהל/ת ניסוי' };
+  const ROLE_HE = { doctor: 'רופא/ה', clinic_owner: 'בעל/ת מרפאה', trial_manager: 'מנהל/ת ניסוי', manager: 'מנהל/ת מערכת' };
   const THEMES = [
     { name: 'בהיר-מלווה', by: 'age', value: '60+' },
     { name: 'צעיר-דינמי', by: 'age', value: 'עד 30' },
@@ -152,6 +158,8 @@
       $('#whoRole').textContent = ROLE_HE[j.doctor.role] || j.doctor.role;
       const extra = (j.linked_doctors || []).map((d) => d.name).join(', ');
       $('#whoScope').textContent = extra ? 'מורשה גם לנתוני: ' + extra : 'מורשה לנתונים שלך בלבד';
+      // the phonebook is a manager surface; the server enforces it either way
+      $$('.tabs .chip.mgr').forEach((c) => { c.hidden = j.doctor.role !== 'manager'; });
       loadQuestionnaires();
     } catch (e) { /* stays on login */ }
   }
@@ -160,11 +168,12 @@
   $$('.tabs .chip').forEach((c) => c.addEventListener('click', () => {
     $$('.tabs .chip').forEach((x) => x.classList.remove('on'));
     c.classList.add('on');
-    for (const t of ['qs', 'new', 'reviews', 'shares', 'analytics', 'settings']) {
+    for (const t of ['qs', 'new', 'book', 'reviews', 'shares', 'analytics', 'settings']) {
       $('#tab-' + t).style.display = c.dataset.tab === t ? 'block' : 'none';
     }
     if (c.dataset.tab === 'qs') loadQuestionnaires();
     if (c.dataset.tab === 'new') initNewForm();
+    if (c.dataset.tab === 'book') loadPhonebook();
     if (c.dataset.tab === 'reviews') loadMyReviews();
     if (c.dataset.tab === 'shares') loadShares();
     if (c.dataset.tab === 'analytics') loadAnalytics();
@@ -457,6 +466,131 @@
         const j = await api('/digest/preview', { method: 'POST' });
         $('#stOut').textContent = ` ✓ נשלח (${(j.via || []).join(' + ') || 'log'}) · ${j.counts.answers} תשובות, ${j.counts.reviews} ביקורות`;
       } catch (e) { $('#stOut').textContent = ' ' + e.message; }
+    };
+  }
+
+  // --------------------------------------------------- ספר טלפונים -------
+  // The alphon's directory, annotated with our questionnaire coverage.
+  // Everything here is the doctor's public card — patient answers are never in
+  // a manager's scope, so there is nothing to hide behind a click.
+  const book = { q: '', category: '', has_phone: false, has_whatsapp: false, has_questionnaire: false, offset: 0, limit: 20 };
+  let bookCats = null;
+
+  function bookQuery() {
+    const p = new URLSearchParams({ limit: String(book.limit), offset: String(book.offset) });
+    if (book.q) p.set('q', book.q);
+    if (book.category) p.set(book.has_questionnaire ? 'category' : 'specialty', book.category);
+    if (book.has_phone) p.set('has_phone', '1');
+    if (book.has_whatsapp) p.set('has_whatsapp', '1');
+    if (book.has_questionnaire) p.set('has_questionnaire', '1');
+    if (!book.has_questionnaire) p.set('type', 'רופא');
+    return p.toString();
+  }
+
+  async function loadPhonebook() {
+    const box = $('#tab-book');
+    if (!bookCats) {
+      try { bookCats = (await api('/phonebook/categories')).categories; }
+      catch { bookCats = []; }
+    }
+    box.innerHTML = `
+      <div class="card">
+        <h3 style="margin:4px 0 8px">📖 ספר טלפונים</h3>
+        <div class="muted">ספר הטלפונים של אשכולות, עם סימון מי מהרופאים מריץ שאלון "אחרי הביקור".</div>
+        <input type="search" id="bkQ" placeholder="חיפוש: שם, התמחות, עיר…" value="${esc(book.q)}" style="margin-top:8px">
+        <div class="tabs" style="margin:8px 0 4px">
+          <span class="chip ${book.has_phone ? 'on' : ''}" id="bkPhone">☎️ רק עם טלפון</span>
+          <span class="chip ${book.has_whatsapp ? 'on' : ''}" id="bkWa">💬 רק עם וואטסאפ</span>
+          <span class="chip ${book.has_questionnaire ? 'on' : ''}" id="bkQn">📋 רק עם שאלונים</span>
+        </div>
+        <div class="tabs" style="margin:0 0 4px">
+          <span class="chip ${!book.category ? 'on' : ''}" data-cat="">הכל</span>
+          ${bookCats.map((c) => `<span class="chip ${book.category === c.category ? 'on' : ''}" data-cat="${esc(c.category)}">${esc(c.category)} <span class="muted">${c.doctors}</span></span>`).join('')}
+        </div>
+        <div id="bkList"><div class="muted">טוען…</div></div>
+      </div>`;
+
+    const rerun = () => { book.offset = 0; loadPhonebook(); };
+    $('#bkQ').addEventListener('change', (e) => { book.q = e.target.value.trim(); rerun(); });
+    $('#bkPhone').onclick = () => { book.has_phone = !book.has_phone; rerun(); };
+    $('#bkWa').onclick = () => { book.has_whatsapp = !book.has_whatsapp; rerun(); };
+    $('#bkQn').onclick = () => { book.has_questionnaire = !book.has_questionnaire; book.category = ''; rerun(); };
+    $$('#tab-book [data-cat]').forEach((c) => c.addEventListener('click', () => {
+      book.category = c.dataset.cat; rerun();
+    }));
+
+    try {
+      const j = await api('/phonebook?' + bookQuery());
+      const rows = j.entities.map((e) => {
+        const q = e.questionnaire;
+        return `<div class="qq" style="padding:6px 8px 6px 0">
+          <div class="qrow">
+            <div>
+              <b>${esc(e.name)}</b>
+              ${e.verified ? '<span class="pill">מאומת</span>' : ''}
+              ${q ? `<span class="pill">${esc(q.category)}</span>` : ''}
+              <div class="muted">${esc([e.spec, e.city, e.org].filter(Boolean).join(' · '))}</div>
+              <div class="muted">
+                ${e.phone ? '☎️ ' + esc(e.phone) : '<span style="opacity:.6">אין טלפון לשיתוף</span>'}
+                ${e.wa ? ' · 💬 וואטסאפ' : ''}
+              </div>
+              ${q ? `<div class="muted">📋 ${esc(q.title)} · ${q.runs} הרצות, ${q.answered} נענו${q.deliverable ? '' : ' · ⚠️ אין ערוץ מסירה'}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              ${q ? `<a class="chip" href="/desk.html?assignment=${q.assignment_id}" target="_blank">📱 קוד לשולחן</a>` : ''}
+              ${q ? `<button class="chip" data-rep="${q.assignment_id}">📊 דוח</button>`
+                  : `<button class="chip" data-assign="${e.id}" data-name="${esc(e.name)}">➕ שיוך שאלון</button>`}
+            </div>
+          </div>
+          <div id="bkx-${e.id}"></div>
+        </div>`;
+      }).join('');
+
+      const pages = Math.ceil(j.total / book.limit) || 1;
+      const page = Math.floor(book.offset / book.limit) + 1;
+      $('#bkList').innerHTML = (rows || '<div class="muted">אין תוצאות לחיפוש הזה.</div>') +
+        `<div class="qrow" style="margin-top:10px">
+           <span class="muted">${j.total} רופאים · עמוד ${page}/${pages}${j.source === 'assignments' ? ' · מסונן לפי שאלונים' : ''}</span>
+           <span>
+             <button class="chip" id="bkPrev" ${book.offset ? '' : 'disabled'}>‹ הקודם</button>
+             <button class="chip" id="bkNext" ${book.offset + book.limit >= j.total ? 'disabled' : ''}>הבא ›</button>
+           </span>
+         </div>`;
+
+      $('#bkPrev').onclick = () => { book.offset = Math.max(0, book.offset - book.limit); loadPhonebook(); };
+      $('#bkNext').onclick = () => { book.offset += book.limit; loadPhonebook(); };
+      $$('#bkList [data-rep]').forEach((b) => b.addEventListener('click', () => showAssignReport(b.dataset.rep)));
+      $$('#bkList [data-assign]').forEach((b) => b.addEventListener('click', () => assignTo(b.dataset.assign, b.dataset.name)));
+    } catch (e) {
+      $('#bkList').innerHTML = `<div class="muted">${esc(e.message)}</div>`;
+    }
+  }
+
+  async function showAssignReport(id) {
+    try {
+      const j = await api('/assignments/' + id + '/report');
+      const t = j.totals;
+      alert(`${j.assignment.doctor} · ${j.assignment.title}\n\n` +
+        `הרצות: ${t.runs}\nנענו: ${t.answered}\nדרך QR: ${t.by_qr}\nמטופלים מזוהים: ${t.by_identified}\n` +
+        `נמסרו לרופא/ה: ${t.delivered}\nנמחקו מהמערכת אחרי מסירה: ${t.purged}`);
+    } catch (e) { alert(e.message); }
+  }
+
+  async function assignTo(entityId, name) {
+    const slot = $('#bkx-' + entityId);
+    if (!bookCats.length) return alert('אין שאלוני קטגוריה לשייך');
+    slot.innerHTML = `<div style="margin:6px 0">
+      <select id="asQ">${bookCats.map((c) => `<option value="${c.questionnaire_id}">${esc(c.title)}</option>`).join('')}</select>
+      <button class="chip" id="asGo">שיוך</button> <span class="muted" id="asOut"></span></div>`;
+    $('#asGo').onclick = async () => {
+      try {
+        const j = await api('/phonebook/' + entityId + '/assign', {
+          method: 'POST', body: { questionnaire_id: $('#asQ').value, name },
+        });
+        $('#asOut').textContent = j.deliverable ? 'שויך ✓' : 'שויך — אך אין וואטסאפ למסירה';
+        bookCats = null;
+        setTimeout(loadPhonebook, 700);
+      } catch (e) { $('#asOut').textContent = e.message; }
     };
   }
 

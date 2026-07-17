@@ -22,6 +22,17 @@ export function requireDoctor(req, res, next) {
   }
 }
 
+// The phonebook and the questionnaire assignments are management surfaces:
+// they cover every doctor in the alphon, not just one clinic's. Only a manager
+// gets there — and even a manager sees the alphon's public card plus coverage
+// counts, never a patient's answers.
+export function requireManager(req, res, next) {
+  if (req.doctor?.role !== 'manager') {
+    return res.status(403).json({ error: 'הפעולה מיועדת למנהל המערכת' });
+  }
+  next();
+}
+
 // Doctors this account *is responsible for* — himself plus the doctors under
 // his organisation:
 //   doctor        -> himself

@@ -8,6 +8,8 @@ import tagsRouter from './routes/tags.js';
 import reviewsRouter from './routes/reviews.js';
 import doctorsRouter from './routes/doctors.js';
 import hooksRouter from './routes/hooks.js';
+import qrRouter from './routes/qr.js';
+import configRouter from './routes/config.js';
 import { analyzeProxy } from './routes/analyze.js';
 import { startScheduler } from './services/scheduler.js';
 
@@ -48,15 +50,21 @@ app.use('/api/public', (req, res) => {
 
 // --------------------------------------------------------------- own API ----
 app.use(express.json({ limit: '2mb' }));
+app.use('/api', configRouter);     // public client config (Google Maps browser key)
 app.use('/api', trackRouter);      // sessions, events, profile, points, badges
 app.use('/api', tagsRouter);       // tag tree (alphon + local fallback)
 app.use('/api', reviewsRouter);    // reviews + review-on-review
 app.use('/api/doctor', doctorsRouter); // doctor auth, questionnaires, reports, shares
 app.use('/api/hooks', hooksRouter);    // answer webhook for the WhatsApp bot / email flow
+app.use('/api/qr', qrRouter);          // desk-QR scans + the identified-patient flow
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'לא נמצא' }));
 
 // ---------------------------------------------------------------- client ----
+// /q/<assignment_id>?w=&s= — what the desk QR encodes. The page reads its own
+// query string and calls /api/qr/resolve; the signature is checked there.
+app.get('/q/:id', (req, res) => res.sendFile(path.join(CLIENT_DIR, 'visit.html')));
+
 app.use(express.static(CLIENT_DIR, { extensions: ['html'] }));
 
 /* A request that names a file extension wants that file, not the app shell.

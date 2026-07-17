@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>שאלון אחרי הביקור · מסביב 🎯</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .q { margin:14px 0; }
+  .q label { display:block; font-weight:600; margin-bottom:4px; }
+  .q .hint { color:#7a94a8; font-size:12px; margin-bottom:6px; }
+  .q input, .q textarea { width:100%; }
+  .privacy { background:#eef7ee; border:1px solid #cfe6cf; border-radius:12px;
+             padding:10px 12px; font-size:13px; color:#2c5c3a; margin:12px 0; }
+  .slot { background:#eaf3f9; border-radius:10px; padding:6px 10px; color:#2a5878;
+          font-size:13px; display:inline-block; }
+  .err { background:#fdeeee; border:1px solid #f2cfcf; border-radius:12px;
+         padding:12px; color:#a33; }
+  .done { text-align:center; padding:22px 8px; }
+  .done .big { font-size:46px; }
+</style>
+</head>
+<body data-ambience="">
+<div class="aam-waves"></div>
+<div class="aam-page" style="max-width:620px">
+  <div class="aam-brand">
+    <div class="en">we are seach medical</div>
+    <h1>📋 שאלון אחרי הביקור</h1>
+  </div>
+  <div id="view" class="card">
+    <div class="muted">רגע, טוענים את השאלון…</div>
+  </div>
+</div>
+
+<script src="/js/i18n.js"></script>
+<script>
+/* The desk-QR patient page.
+   The URL we were opened with IS the credential: /q/<assignment_id>?w=&s=.
+   We never ask who the patient is — the doctor recognises them by the visit
+   slot the server stamped when the code was scanned. */
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  var view = $('#view');
+  var state = { token: null, questions: [], answered: [] };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // the app's anonymous profile cookie, so a reload resumes the same run
+  function uid() {
+    var m = document.cookie.match(/(?:^|;\s*)aam_uid=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  function fail(msg) {
+    view.innerHTML = '<div class="err">' + esc(msg) + '</div>';
+  }
+
+  function render(data) {
+    var rows = data.questions.map(function (q) {
+      var done = data.answered_idx.indexOf(q.idx) !== -1;
+      return '<div class="q">' +
+        '<label for="a' + q.idx + '">' + (q.idx + 1) + '. ' + esc(q.q) + '</label>' +
+        (q.expected ? '<div class="hint">' + esc(q.expected) + '</div>' : '') +
+        '<input id="a' + q.idx + '" data-idx="' + q.idx + '" autocomplete="off"' +
+        (done ? ' placeholder="נענתה — אפשר לעדכן"' : '') + '>' +
+      '</div>';
+    }).join('');
+
+    view.innerHTML =
+      '<div><b>' + esc(data.doctor.name) + '</b>' +
+        (data.doctor.specialty ? ' <span class="muted">· ' + esc(data.doctor.specialty) + '</span>' : '') +
+      '</div>' +
+      (data.visit_slot_label ? '<div class="slot" style="margin-top:6px">' + esc(data.visit_slot_label) + '</div>' : '') +
+      '<div class="privacy">🔒 התשובות נשלחות ישירות לרופא/ה. ' +
+        'המערכת לא מבקשת ולא שומרת את השם, הטלפון או הפרטים המזהים שלך.</div>' +
+      rows +
+      '<button class="aam-btn" id="send"><span class="ic">📨</span><span>שליחה לרופא/ה</span></button>' +
+      '<div class="muted" id="out"></div>';
+
+    $('#send').addEventListener('click', send);
+  }
+
+  function send() {
+    var btn = $('#send'), out = $('#out');
+    var answers = [].map.call(document.querySelectorAll('.q input'), function (el) {
+      return { idx: parseInt(el.dataset.idx, 10), answer: el.value.trim() };
+    }).filter(function (a) { return a.answer; });
+
+    if (!answers.length) { out.textContent = 'צריך לענות לפחות על שאלה אחת.'; return; }
+    btn.disabled = true;
+    out.textContent = 'שולח…';
+
+    fetch('/api/qr/answers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: state.token, answers: answers, done: true }),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) { btn.disabled = false; out.textContent = res.j.error || 'השליחה נכשלה'; return; }
+        view.innerHTML = '<div class="done"><div class="big">🎯</div>' +
+          '<h2>תודה רבה!</h2><p>' + esc(res.j.notice) + '</p>' +
+          '<p class="muted">רפואה שלמה.</p></div>';
+      })
+      .catch(function () { btn.disabled = false; out.textContent = 'אין חיבור לרשת, נסו שוב.'; });
+  }
+
+  var p = new URLSearchParams(location.search);
+  var id = (location.pathname.match(/\/q\/(\d+)/) || [])[1];
+  if (!id) return fail('הקוד אינו תקין.');
+
+  fetch('/api/qr/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignment_id: parseInt(id, 10), w: p.get('w'), s: p.get('s'), uid: uid() }),
+  }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (!res.ok) return fail(res.j.error || 'לא הצלחנו לפתוח את השאלון.');
+      state.token = res.j.token;
+      render(res.j);
+    })
+    .catch(function () { fail('אין חיבור לרשת. נסו לסרוק שוב.'); });
+})();
+</script>
+</body>
+</html>

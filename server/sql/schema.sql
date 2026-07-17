@@ -168,12 +168,17 @@ CREATE TABLE IF NOT EXISTS review_reviews (
 --   doctor        — sees only his own data
 --   clinic_owner  — additionally sees data of doctors linked under him (link_type 'clinic')
 --   trial_manager — additionally sees data of doctors registered to his trial (link_type 'trial')
+--   manager       — platform manager: the phonebook (ספר טלפונים) and the
+--                   questionnaire assignments across all alphon doctors. A
+--                   manager administers *coverage*, not patients: the phonebook
+--                   shows only the alphon's shareable public card, and patient
+--                   answers are never in his scope (see questionnaire_runs).
 CREATE TABLE IF NOT EXISTS doctors (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(190) NOT NULL UNIQUE,
   password_hash VARCHAR(190) NOT NULL,
   name VARCHAR(190) NOT NULL,
-  role ENUM('doctor','clinic_owner','trial_manager') NOT NULL DEFAULT 'doctor',
+  role ENUM('doctor','clinic_owner','trial_manager','manager') NOT NULL DEFAULT 'doctor',
   specialty VARCHAR(190) NULL,
   alphon_entity_id INT UNSIGNED NULL,
   phone VARCHAR(32) NULL,               -- WhatsApp for the daily digest
@@ -234,22 +239,74 @@ CREATE TABLE IF NOT EXISTS questionnaire_collaborators (
   CONSTRAINT fk_qc_doctor FOREIGN KEY (doctor_id) REFERENCES doctors(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- A questionnaire template assigned to one doctor in the Eshkolot phonebook.
+-- The doctor is an alphon *entity*, not an account here: assigning a
+-- questionnaire must not require the doctor to register. `questionnaire_id`
+-- is the category template (after-visit questionnaire for רפואת ילדים / אף אוזן
+-- גרון / אונקולוגיה / כאב); one template serves many doctors.
+--
+-- deliver_phone / deliver_email are the doctor's OWN channel, copied from the
+-- alphon's shareable card. Completed answers are delivered there and the
+-- identifying copy is then dropped from this database — the regulatory line is
+-- that personal patient content lives in the doctor's own WhatsApp/email with
+-- the patient, and this platform is only the conduit.
+--
+-- desk_secret keys the rotating desk QR (see services/qr.js). It never leaves
+-- the server: the QR carries only a short-lived signature derived from it, so
+-- a leaked QR photo stops working once its window passes.
+CREATE TABLE IF NOT EXISTS questionnaire_assignments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  questionnaire_id INT UNSIGNED NOT NULL,
+  alphon_entity_id INT UNSIGNED NOT NULL,
+  entity_name VARCHAR(190) NOT NULL,
+  entity_spec VARCHAR(190) NULL,
+  entity_city VARCHAR(120) NULL,
+  category VARCHAR(60) NOT NULL,
+  deliver_phone VARCHAR(32) NULL,
+  deliver_email VARCHAR(190) NULL,
+  desk_secret CHAR(64) NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_assign (questionnaire_id, alphon_entity_id),
+  KEY idx_assign_entity (alphon_entity_id),
+  KEY idx_assign_category (category),
+  CONSTRAINT fk_assign_q FOREIGN KEY (questionnaire_id) REFERENCES questionnaires(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- An issued questionnaire towards one patient: the blended question list is
 -- frozen into `payload` as JSON instructions for the WhatsApp bot / email.
+--
+-- source records how the patient got here:
+--   manual     — the doctor issued it from the console
+--   qr         — the patient scanned the desk QR (assignment_id + visit_slot set)
+--   identified — a phone-verified profile answering for a doctor it chose
+--
+-- visit_slot is the moment of the scan, which is what makes a QR run
+-- self-identifying to the doctor without any patient details: "החולה מיום
+-- שלישי בשעה 17:40".
 CREATE TABLE IF NOT EXISTS questionnaire_runs (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   questionnaire_id INT UNSIGNED NOT NULL,
+  assignment_id INT UNSIGNED NULL,
+  uid CHAR(24) NULL,                     -- app profile that answered (QR / identified)
+  source ENUM('manual','qr','identified') NOT NULL DEFAULT 'manual',
+  visit_slot DATETIME NULL,
   patient_name VARCHAR(190) NULL,
   patient_phone VARCHAR(60) NULL,
   patient_email VARCHAR(190) NULL,
-  channel ENUM('whatsapp','email') NOT NULL DEFAULT 'whatsapp',
+  channel ENUM('whatsapp','email','web') NOT NULL DEFAULT 'whatsapp',
   payload JSON NOT NULL,
   status ENUM('issued','sent','answered','closed') NOT NULL DEFAULT 'issued',
   scheduled_for DATETIME NULL,
   sent_at DATETIME NULL,
+  delivered_to_doctor_at DATETIME NULL,  -- answers handed to the doctor's own channel
+  purged_at DATETIME NULL,               -- identifying fields dropped after delivery
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_runs_q (questionnaire_id),
-  CONSTRAINT fk_run_q FOREIGN KEY (questionnaire_id) REFERENCES questionnaires(id) ON DELETE CASCADE
+  KEY idx_runs_assignment (assignment_id),
+  KEY idx_runs_uid (uid),
+  CONSTRAINT fk_run_q FOREIGN KEY (questionnaire_id) REFERENCES questionnaires(id) ON DELETE CASCADE,
+  CONSTRAINT fk_run_assign FOREIGN KEY (assignment_id) REFERENCES questionnaire_assignments(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS questionnaire_answers (

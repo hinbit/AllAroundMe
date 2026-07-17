@@ -4,6 +4,7 @@
 import { config } from '../env.js';
 import { dispatchDueOutbox } from './whatsapp.js';
 import { runDailyDigests } from './digest.js';
+import { sweepUndelivered } from './phi.js';
 
 let timer = null;
 let busy = false;
@@ -14,6 +15,12 @@ export async function tick() {
   try {
     const r = await dispatchDueOutbox();
     if (r.sent) console.log(`[allaroundme] scheduler: sent ${r.sent}/${r.due} due messages`);
+
+    // answers that never reached their doctor are still sitting here holding
+    // patient identifiers — retrying is what lets us drop them
+    const phi = await sweepUndelivered();
+    if (phi.delivered) console.log(`[allaroundme] scheduler: handed ${phi.delivered}/${phi.pending} answer sets to doctors`);
+
     if (new Date().getHours() >= config.digestHour) {
       const results = await runDailyDigests();
       const sent = results.filter((x) => !x.skipped && !x.error).length;

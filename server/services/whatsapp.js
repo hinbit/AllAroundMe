@@ -1,53 +1,21 @@
-// WhatsApp delivery: pluggable transport + the one-question-at-a-time
-// questionnaire conversation. Everything outgoing goes through the wa_outbox
-// table so the trail is auditable and scheduled sends survive restarts.
+// WhatsApp delivery: the outbox + the one-question-at-a-time questionnaire
+// conversation. Everything sent from here goes through the wa_outbox table so
+// the trail is auditable and scheduled sends survive restarts. The wire itself
+// lives in waTransport.js.
 //
-// WHATSAPP_MODE:
-//   log     — dev default: messages are printed to the server log
-//   cloud   — Meta WhatsApp Cloud API (WHATSAPP_TOKEN + WHATSAPP_PHONE_ID)
-//   webhook — POST {to, text, run_id, kind} to an external bot (WHATSAPP_BOT_URL)
+// Note the deliberate exception: the PHI hand-off (phi.js) does *not* come
+// through here, because an outbox row would persist the patient's answers in
+// this database — the one thing that design is meant to avoid.
 import { query, queryOne } from '../db.js';
 import { config } from '../env.js';
 import { sendMail, mailEnabled } from './mailer.js';
+import { normalizePhone, transportSend } from './waTransport.js';
+import { deliverRunToDoctor } from './phi.js';
+import { claimByWhatsAppWord } from './identity.js';
 
 const parseJson = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
 
-// Normalize a phone to digits with country code (Israeli 0-prefix -> 972).
-export function normalizePhone(raw) {
-  let p = String(raw || '').replace(/[^\d]/g, '');
-  if (p.startsWith('00')) p = p.slice(2);
-  if (p.startsWith('0')) p = '972' + p.slice(1);
-  return p.length >= 8 && p.length <= 15 ? p : '';
-}
-
-// ------------------------------------------------------------ transports ----
-async function transportSend(to, text, meta = {}) {
-  const { mode, token, phoneId, botUrl } = config.whatsapp;
-  if (mode === 'cloud' && token && phoneId) {
-    const r = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp', to, type: 'text', text: { body: text },
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!r.ok) throw new Error(`cloud API ${r.status}: ${(await r.text()).slice(0, 200)}`);
-    return 'cloud';
-  }
-  if (mode === 'webhook' && botUrl) {
-    const r = await fetch(botUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to, text, ...meta }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!r.ok) throw new Error(`bot webhook ${r.status}`);
-    return 'webhook';
-  }
-  console.log(`[allaroundme] [wa:log] -> ${to}\n${text.split('\n').map((l) => '    ' + l).join('\n')}`);
-  return 'log';
-}
+export { normalizePhone };
 
 // Send now + record in the outbox (kind: otp / digest / system).
 export async function sendWhatsApp(to, text, kind = 'system', runId = null) {
@@ -121,6 +89,19 @@ export async function handleInbound(fromPhone, text) {
   const body = String(text || '').trim().slice(0, 4000);
   if (!phone || !body) return { ok: false, reason: 'empty' };
 
+  // A verification word (option b) is checked before the questionnaire: this is
+  // someone proving who they are, not answering a question. claimByWhatsAppWord
+  // returns null unless the message actually carries a live word.
+  const claim = await claimByWhatsAppWord(phone, body);
+  if (claim) {
+    await transportSend(
+      phone,
+      'מסביב 🎯 המספר שלך אומת. אפשר לחזור לאפליקציה.\nהמספר הזה משמש לזיהוי בלבד — מידע רפואי עובר ישירות בינך לבין הרופא/ה.',
+      { kind: 'otp', purpose: 'verification' }
+    );
+    return { ok: true, verified: true, uid: claim.uid, merged: claim.merged };
+  }
+
   const conv = await queryOne(
     `SELECT * FROM wa_conversations WHERE phone = ? AND status = 'active' ORDER BY id DESC LIMIT 1`,
     [phone]
@@ -155,6 +136,8 @@ export async function handleInbound(fromPhone, text) {
     `תודה רבה ${payload.patient?.name || ''}! 🙏 התשובות הועברו ל${payload.doctor?.name || 'המרפאה'}. רפואה שלמה 🎯`.replace('  ', ' '),
     { kind: 'questionnaire', run_id: run.id }
   );
+  // hand the answers to the doctor's own channel and drop our identifying copy
+  await deliverRunToDoctor(run.id);
   return { ok: true, saved: true, done: true };
 }
 

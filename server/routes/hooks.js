@@ -2,6 +2,7 @@ import express from 'express';
 import { query, queryOne } from '../db.js';
 import { config } from '../env.js';
 import { handleInbound } from '../services/whatsapp.js';
+import { deliverRunToDoctor } from '../services/phi.js';
 
 const router = express.Router();
 
@@ -66,6 +67,9 @@ router.post('/answers', async (req, res) => {
   }
   if (saved) {
     await query(`UPDATE questionnaire_runs SET status = 'answered', sent_at = COALESCE(sent_at, NOW()) WHERE id = ?`, [runId]);
+    // same rule as the WhatsApp flow: hand the answers to the doctor's own
+    // channel, then drop our identifying copy
+    await deliverRunToDoctor(runId);
   }
   res.json({ ok: true, saved });
 });

@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { query, queryOne } from '../db.js';
 import { config } from '../env.js';
 import { sendWhatsApp, normalizePhone } from '../services/whatsapp.js';
+import { mergeProfiles } from '../services/identity.js';
 
 const router = express.Router();
 
@@ -203,29 +204,6 @@ router.post('/profile/phone/request', async (req, res) => {
   res.json({ ok: true, sent_to: phone, ...(dev ? { dev_code: code } : {}) });
 });
 
-// Move every uid-keyed row from `fromUid` onto `toUid` and sum the counters.
-// Unique keys (badges, chosen, review_reviews, review_flags) merge with IGNORE.
-async function mergeProfiles(fromUid, toUid) {
-  for (const [table, col] of [['app_sessions', 'uid'], ['app_events', 'uid'], ['transcripts', 'uid'], ['reviews', 'uid']]) {
-    await query(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [toUid, fromUid]);
-  }
-  for (const table of ['badges', 'chosen_doctors', 'review_reviews', 'review_flags']) {
-    await query(`UPDATE IGNORE ${table} SET uid = ? WHERE uid = ?`, [toUid, fromUid]);
-    await query(`DELETE FROM ${table} WHERE uid = ?`, [fromUid]); // duplicates the IGNORE left behind
-  }
-  await query(
-    `UPDATE profiles a JOIN profiles b ON b.uid = ?
-        SET a.visits = a.visits + b.visits, a.searches = a.searches + b.searches,
-            a.points = a.points + b.points, a.reviews_given = a.reviews_given + b.reviews_given,
-            a.allow_reviews = GREATEST(a.allow_reviews, b.allow_reviews),
-            a.skip_splash = GREATEST(a.skip_splash, b.skip_splash),
-            a.last_seen = NOW()
-      WHERE a.uid = ?`,
-    [fromUid, toUid]
-  );
-  await query('DELETE FROM profiles WHERE uid = ?', [fromUid]);
-}
-
 // POST /api/profile/phone/verify {uid, phone, code} — claim the profile.
 // If the phone already belongs to another profile, this device's history is
 // merged into it and the canonical uid is returned (the client re-sets its cookie).
@@ -259,6 +237,68 @@ router.post('/profile/phone/verify', async (req, res) => {
       visits: profile.visits, searches: profile.searches, points: profile.points,
       reviews_given: profile.reviews_given, phone: profile.phone,
     },
+  });
+});
+
+// ------------------------------------- WhatsApp identification (option b) ---
+// The simple version, and the direction that matters: instead of us texting a
+// code *to* the person, the person messages *us*. The WhatsApp button opens a
+// chat to the platform's 360dialog number with a one-time word pre-filled; when
+// that message arrives, the sender's own number is the proof — we never had to
+// deliver anything, and there is no code to intercept or mistype.
+//
+// That number is an identity desk and nothing else: it verifies who someone is,
+// and clinical content never flows through it (see services/phi.js).
+
+// POST /api/profile/whatsapp/link {uid} — the click-to-chat link + its word.
+router.post('/profile/whatsapp/link', async (req, res) => {
+  const uid = String(req.body?.uid || '').slice(0, 24);
+  if (!uid) return res.status(400).json({ error: 'חסר uid' });
+  const profile = await queryOne('SELECT uid FROM profiles WHERE uid = ?', [uid]);
+  if (!profile) return res.status(404).json({ error: 'פרופיל לא נמצא' });
+
+  const number = normalizePhone(config.dialog360.number);
+  if (!number) {
+    return res.status(503).json({ error: 'אימות בוואטסאפ אינו מוגדר בשרת (DIALOG360_NUMBER)' });
+  }
+
+  const recent = await queryOne(
+    `SELECT COUNT(*) AS n FROM otp_codes
+      WHERE uid = ? AND purpose = 'wa_claim' AND created_at > NOW() - INTERVAL 1 HOUR`, [uid]
+  );
+  if (Number(recent.n) >= 5) return res.status(429).json({ error: 'יותר מדי נסיונות — נסו שוב בעוד שעה' });
+
+  // unambiguous over WhatsApp: no 0/O or 1/I to misread, and it fits CHAR(6)
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const word = Array.from(crypto.randomBytes(6)).map((b) => alphabet[b % alphabet.length]).join('');
+  await query(
+    `INSERT INTO otp_codes (phone, uid, code, purpose, expires_at)
+     VALUES ('', ?, ?, 'wa_claim', NOW() + INTERVAL 30 MINUTE)`,
+    [uid, word]
+  );
+
+  const text = `אימות מסביב: ${word}`;
+  res.json({
+    ok: true,
+    word,
+    number,
+    // the patient sends this message; the reply lands on /api/hooks/wa-inbound
+    link: `https://wa.me/${number}?text=${encodeURIComponent(text)}`,
+    expires_in_min: 30,
+  });
+});
+
+// GET /api/profile/whatsapp/status?uid= — did their message land yet?
+// The client polls this while the person is off in WhatsApp.
+router.get('/profile/whatsapp/status', async (req, res) => {
+  const uid = String(req.query.uid || '').slice(0, 24);
+  if (!uid) return res.status(400).json({ error: 'חסר uid' });
+  const profile = await queryOne('SELECT phone, phone_verified_at FROM profiles WHERE uid = ?', [uid]);
+  if (!profile) return res.status(404).json({ error: 'פרופיל לא נמצא' });
+  res.json({
+    verified: !!profile.phone_verified_at,
+    phone: profile.phone || null,
+    verified_at: profile.phone_verified_at || null,
   });
 });
 

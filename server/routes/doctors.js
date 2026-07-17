@@ -1,14 +1,21 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
+import QRCode from 'qrcode';
 import { query, queryOne } from '../db.js';
-import { signDoctorToken, requireDoctor, scopedDoctorIds, ownDoctorIds } from '../middleware/auth.js';
+import { signDoctorToken, requireDoctor, requireManager, scopedDoctorIds, ownDoctorIds } from '../middleware/auth.js';
 import { config } from '../env.js';
 import { enqueueRunDelivery, dispatchDueOutbox, normalizePhone } from '../services/whatsapp.js';
 import { sendDigest } from '../services/digest.js';
+import { deskUrl, newDeskSecret, QR_WINDOW_SEC } from '../services/qr.js';
 
 const router = express.Router();
 
 const parseJson = (v) => (typeof v === 'string' ? JSON.parse(v) : v);
+
+// Where this server is reachable, for the desk QR. PUBLIC_URL wins (behind a
+// proxy it is the only thing that knows the real public name); the request's
+// own origin is the dev fallback so a local run still prints a scannable code.
+const requestOrigin = (req) => config.publicUrl || `${req.protocol}://${req.get('host')}`;
 
 // ------------------------------------------------------------------ auth ----
 router.post('/login', async (req, res) => {
@@ -374,6 +381,292 @@ router.post('/digest/preview', async (req, res) => {
 router.get('/doctors', async (req, res) => {
   const rows = await query('SELECT id, name, role, specialty FROM doctors WHERE id <> ? ORDER BY name', [req.doctor.id]);
   res.json({ doctors: rows });
+});
+
+// ------------------------------------------------ ספר טלפונים (manager) -----
+// GET /phonebook?q=&specialty=&city=&has_phone=&has_whatsapp=&has_questionnaire=&limit=&offset=
+//
+// The alphon's directory is the source of truth for *who exists*; this database
+// is the source of truth for *who has a questionnaire*. Which one drives the
+// query depends on the filter, because each can only paginate over what it
+// knows:
+//
+//   רק עם שאלונים  -> our assignment table drives, and we resolve the page's
+//                     cards from the alphon in one ids= hop. (Paging the alphon
+//                     and filtering the page locally would search 70k contacts
+//                     for 30 needles and return mostly empty pages.)
+//   everything else -> the alphon drives, and we annotate its page with ours.
+//
+// Either way a manager sees the public card plus coverage — never an answer.
+async function fetchDirectory(params) {
+  const r = await fetch(`${config.eshkolotApi}/public/directory?${params}`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) throw new Error(`upstream ${r.status}`);
+  return r.json();
+}
+
+async function assignmentsFor(entityIds) {
+  if (!entityIds.length) return new Map();
+  const rows = await query(
+    `SELECT a.id, a.alphon_entity_id, a.category, a.active, a.deliver_phone, q.title,
+            (SELECT COUNT(*) FROM questionnaire_runs r WHERE r.assignment_id = a.id) AS runs,
+            (SELECT COUNT(*) FROM questionnaire_runs r WHERE r.assignment_id = a.id AND r.status = 'answered') AS answered
+       FROM questionnaire_assignments a JOIN questionnaires q ON q.id = a.questionnaire_id
+      WHERE a.alphon_entity_id IN (${entityIds.map(() => '?').join(',')})`,
+    entityIds
+  );
+  return new Map(rows.map((a) => [a.alphon_entity_id, {
+    assignment_id: a.id, title: a.title, category: a.category, active: !!a.active,
+    runs: Number(a.runs), answered: Number(a.answered), deliverable: !!a.deliver_phone,
+  }]));
+}
+
+router.get('/phonebook', requireManager, async (req, res) => {
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 30));
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  const truthy = (v) => ['1', 'true'].includes(String(v || '').toLowerCase());
+  const onlyWithQ = truthy(req.query.has_questionnaire);
+  const search = String(req.query.q || '').trim();
+
+  try {
+    if (onlyWithQ) {
+      // --- our table drives ------------------------------------------------
+      const where = ['1=1'], vals = [];
+      if (search) {
+        where.push('(a.entity_name LIKE ? OR a.entity_spec LIKE ? OR a.entity_city LIKE ?)');
+        vals.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+      if (req.query.category) { where.push('a.category = ?'); vals.push(String(req.query.category)); }
+      if (req.query.city) { where.push('a.entity_city LIKE ?'); vals.push(`%${req.query.city}%`); }
+      if (truthy(req.query.has_whatsapp)) where.push('a.deliver_phone IS NOT NULL');
+
+      const totals = await queryOne(
+        `SELECT COUNT(*) AS n FROM questionnaire_assignments a WHERE ${where.join(' AND ')}`, vals
+      );
+      // LIMIT/OFFSET are interpolated, not bound: mysql2's prepared statements
+      // reject placeholders there. Both are already parseInt-clamped above.
+      const rows = await query(
+        `SELECT a.alphon_entity_id FROM questionnaire_assignments a
+          WHERE ${where.join(' AND ')} ORDER BY a.entity_name LIMIT ${limit} OFFSET ${offset}`,
+        vals
+      );
+      const ids = rows.map((r) => r.alphon_entity_id);
+
+      // resolve this page's public cards in one hop; if the alphon is down we
+      // still answer from our cached copy rather than failing the whole screen
+      let cards = new Map();
+      if (ids.length) {
+        try {
+          const up = await fetchDirectory(new URLSearchParams({ ids: ids.join(','), limit: String(ids.length) }));
+          cards = new Map(up.entities.map((e) => [e.id, e]));
+        } catch { /* fall through to the cached card below */ }
+      }
+      const local = ids.length
+        ? await query(
+            `SELECT alphon_entity_id, entity_name, entity_spec, entity_city, deliver_phone
+               FROM questionnaire_assignments WHERE alphon_entity_id IN (${ids.map(() => '?').join(',')})`,
+            ids
+          )
+        : [];
+      const byId = new Map(local.map((l) => [l.alphon_entity_id, l]));
+      const assignments = await assignmentsFor(ids);
+
+      return res.json({
+        total: Number(totals.n), limit, offset, count: ids.length, source: 'assignments',
+        entities: ids.map((id) => {
+          const card = cards.get(id);
+          const l = byId.get(id);
+          return card
+            ? { ...card, questionnaire: assignments.get(id) || null }
+            : {
+                id, name: l.entity_name, spec: l.entity_spec, city: l.entity_city,
+                type: 'רופא', org: null, address: null, verified: false,
+                phone: null, wa: l.deliver_phone || null, stale_card: true,
+                questionnaire: assignments.get(id) || null,
+              };
+        }),
+      });
+    }
+
+    // --- the alphon drives ---------------------------------------------------
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    for (const key of ['q', 'specialty', 'city', 'tag', 'type', 'has_phone', 'has_whatsapp']) {
+      if (req.query[key]) params.set(key, String(req.query[key]));
+    }
+    const upstream = await fetchDirectory(params);
+    const assignments = await assignmentsFor(upstream.entities.map((e) => e.id));
+    res.json({
+      total: upstream.total, limit, offset, count: upstream.entities.length, source: 'alphon',
+      entities: upstream.entities.map((e) => ({ ...e, questionnaire: assignments.get(e.id) || null })),
+    });
+  } catch (e) {
+    // Don't blame the alphon for our own faults — this catch covers our queries
+    // too, and a wrong finger-point here costs someone an afternoon.
+    console.error('[allaroundme] phonebook failed:', e.message);
+    res.status(502).json({
+      error: 'ספר הטלפונים אינו זמין כרגע',
+      detail: String(e.message || e).slice(0, 120),
+    });
+  }
+});
+
+// GET /phonebook/categories — the assignment coverage, for the filter chips.
+router.get('/phonebook/categories', requireManager, async (req, res) => {
+  const rows = await query(
+    `SELECT a.category, q.id AS questionnaire_id, q.title, COUNT(*) AS doctors,
+            SUM(a.deliver_phone IS NOT NULL) AS reachable
+       FROM questionnaire_assignments a JOIN questionnaires q ON q.id = a.questionnaire_id
+      GROUP BY a.category, q.id, q.title ORDER BY a.category`
+  );
+  res.json({
+    categories: rows.map((r) => ({
+      category: r.category, questionnaire_id: r.questionnaire_id, title: r.title,
+      doctors: Number(r.doctors), reachable: Number(r.reachable),
+    })),
+  });
+});
+
+// POST /phonebook/:entityId/assign {questionnaire_id} — put a category
+// questionnaire on an alphon doctor who does not have one.
+router.post('/phonebook/:entityId/assign', requireManager, async (req, res) => {
+  const entityId = parseInt(req.params.entityId, 10);
+  const qid = parseInt(req.body?.questionnaire_id, 10);
+  if (!entityId || !qid) return res.status(400).json({ error: 'חסר מזהה רופא או שאלון' });
+
+  const q = await queryOne('SELECT id, title FROM questionnaires WHERE id = ?', [qid]);
+  if (!q) return res.status(404).json({ error: 'השאלון לא נמצא' });
+
+  // The alphon is the authority on the doctor's card — never trust the client's
+  // copy. Resolve by id, not by name: the card's `name` is title+display_name
+  // ("ד\"ר לוי") while the alphon searches display_name ("לוי"), so a q= lookup
+  // finds nothing for every titled doctor — which is all of them.
+  let entity;
+  try {
+    const r = await fetch(`${config.eshkolotApi}/public/directory?ids=${entityId}&limit=1`,
+      { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`upstream ${r.status}`);
+    const j = await r.json();
+    entity = (j.entities || [])[0];
+  } catch {
+    return res.status(502).json({ error: 'ספר הטלפונים אינו זמין כרגע' });
+  }
+  if (!entity) return res.status(404).json({ error: 'הרופא לא נמצא בספר הטלפונים' });
+
+  const category = await queryOne(
+    'SELECT category FROM questionnaire_assignments WHERE questionnaire_id = ? LIMIT 1', [qid]
+  );
+  // On re-assign, deliver_phone is left exactly as it is. Re-assigning means
+  // "(re)activate this doctor's questionnaire", not "re-sync from the alphon" —
+  // and a manager may have corrected the number by hand (PATCH /assignments/:id)
+  // precisely because the alphon's listed one was wrong. Re-syncing it here
+  // would silently undo that correction and send a patient's answers to the
+  // wrong number. desk_secret is likewise only set on first insert: rotating it
+  // would invalidate every printed desk code.
+  await query(
+    `INSERT INTO questionnaire_assignments
+       (questionnaire_id, alphon_entity_id, entity_name, entity_spec, entity_city, category, deliver_phone, desk_secret)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON DUPLICATE KEY UPDATE active = 1, entity_name = VALUES(entity_name),
+       entity_spec = VALUES(entity_spec), entity_city = VALUES(entity_city)`,
+    [
+      qid, entity.id, entity.name, entity.spec || null, entity.city || null,
+      category?.category || q.title, entity.wa || null, newDeskSecret(),
+    ]
+  );
+  const row = await queryOne(
+    'SELECT id FROM questionnaire_assignments WHERE questionnaire_id = ? AND alphon_entity_id = ?', [qid, entityId]
+  );
+  res.json({ ok: true, assignment_id: row.id, deliverable: !!entity.wa });
+});
+
+// PATCH /assignments/:id {active, deliver_phone, deliver_email}
+router.patch('/assignments/:id', requireManager, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const sets = [], vals = [];
+  if ('active' in (req.body || {})) { sets.push('active = ?'); vals.push(req.body.active ? 1 : 0); }
+  if ('deliver_phone' in (req.body || {})) {
+    const phone = req.body.deliver_phone ? normalizePhone(req.body.deliver_phone) : null;
+    if (req.body.deliver_phone && !phone) return res.status(400).json({ error: 'מספר טלפון לא תקין' });
+    sets.push('deliver_phone = ?'); vals.push(phone);
+  }
+  if ('deliver_email' in (req.body || {})) {
+    sets.push('deliver_email = ?'); vals.push(String(req.body.deliver_email || '').slice(0, 190) || null);
+  }
+  if (!sets.length) return res.status(400).json({ error: 'אין מה לעדכן' });
+  await query(`UPDATE questionnaire_assignments SET ${sets.join(', ')} WHERE id = ?`, [...vals, id]);
+  res.json({ ok: true });
+});
+
+// GET /assignments/:id/desk — the rotating desk QR.
+//
+// Returns the URL to encode *now* plus the seconds left on it; the desk page
+// re-fetches on that beat. The desk secret itself never leaves the server.
+router.get('/assignments/:id/desk', requireManager, async (req, res) => {
+  const a = await queryOne('SELECT * FROM questionnaire_assignments WHERE id = ?', [parseInt(req.params.id, 10)]);
+  if (!a) return res.status(404).json({ error: 'השיוך לא נמצא' });
+  let url;
+  try {
+    url = deskUrl(a, { base: requestOrigin(req) });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+  res.json({
+    assignment_id: a.id,
+    doctor: { name: a.entity_name, specialty: a.entity_spec, alphon_entity_id: a.alphon_entity_id },
+    url,
+    window_sec: QR_WINDOW_SEC,
+    expires_in_sec: QR_WINDOW_SEC - (Math.floor(Date.now() / 1000) % QR_WINDOW_SEC),
+    deliverable: !!(a.deliver_phone || a.deliver_email),
+  });
+});
+
+// GET /assignments/:id/desk.svg — the same rotating code, as a scannable image.
+// Rendered server-side so the desk page needs no QR library, works offline, and
+// never has to be told the URL it is encoding.
+router.get('/assignments/:id/desk.svg', requireManager, async (req, res) => {
+  const a = await queryOne('SELECT * FROM questionnaire_assignments WHERE id = ?', [parseInt(req.params.id, 10)]);
+  if (!a) return res.status(404).send('not found');
+  let svg;
+  try {
+    svg = await QRCode.toString(deskUrl(a, { base: requestOrigin(req) }), {
+      type: 'svg', margin: 1, errorCorrectionLevel: 'M',
+    });
+  } catch (e) {
+    return res.status(500).send(e.message);
+  }
+  res.set('Content-Type', 'image/svg+xml');
+  res.set('Cache-Control', 'no-store');   // it changes every window — never cache it
+  res.send(svg);
+});
+
+// GET /assignments/:id/report — de-identified results for one assigned doctor.
+// There is no patient-level view here by design: once answers reach the doctor
+// this database holds only the husk (see services/phi.js).
+router.get('/assignments/:id/report', requireManager, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const a = await queryOne(
+    `SELECT a.*, q.title FROM questionnaire_assignments a
+       JOIN questionnaires q ON q.id = a.questionnaire_id WHERE a.id = ?`, [id]
+  );
+  if (!a) return res.status(404).json({ error: 'השיוך לא נמצא' });
+  const totals = await queryOne(
+    `SELECT COUNT(*) AS runs,
+            SUM(status = 'answered') AS answered,
+            SUM(source = 'qr') AS by_qr,
+            SUM(source = 'identified') AS by_identified,
+            SUM(delivered_to_doctor_at IS NOT NULL) AS delivered,
+            SUM(purged_at IS NOT NULL) AS purged
+       FROM questionnaire_runs WHERE assignment_id = ?`, [id]
+  );
+  res.json({
+    assignment: { id: a.id, doctor: a.entity_name, category: a.category, title: a.title },
+    totals: {
+      runs: Number(totals.runs), answered: Number(totals.answered || 0),
+      by_qr: Number(totals.by_qr || 0), by_identified: Number(totals.by_identified || 0),
+      delivered: Number(totals.delivered || 0), purged: Number(totals.purged || 0),
+    },
+  });
 });
 
 // GET /analytics — role-scoped overview: sessions, transcripts, top actions.

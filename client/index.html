@@ -331,6 +331,11 @@
       <div style="margin-top:12px;border-top:1px solid #e5eef4;padding-top:10px">
         <b>${AAM_T('phone.title')}</b>
         <div class="muted">${AAM_T('phone.hint')}</div>
+        <button class="chip" id="waGo" style="margin-top:8px">${AAM_T('wa.button')}</button>
+        <div class="muted" style="margin-top:4px">${AAM_T('wa.hint')}</div>
+        <div id="waBox"></div>
+        <details style="margin-top:10px">
+          <summary class="muted" style="cursor:pointer">${AAM_T('wa.or')}</summary>
         <input type="tel" id="phInput" placeholder="${AAM_T('phone.ph')}" autocomplete="tel" style="margin-top:8px">
         <button class="chip" id="phSend" style="margin-top:6px">${AAM_T('phone.send')}</button>
         <div id="phStep2" style="display:none">
@@ -338,7 +343,54 @@
           <button class="chip" id="phVerify" style="margin-top:6px">${AAM_T('phone.verify')}</button>
         </div>
         <div class="muted" id="phMsg" aria-live="polite"></div>
+        </details>
       </div>`;
+    wirePhoneBox();
+  }
+
+  // Option b, the simple version: instead of us texting a code to the person,
+  // the person messages us. Tapping this opens WhatsApp with a one-time word
+  // already typed; when it arrives from their number, that number IS the proof.
+  function wireWhatsAppClaim() {
+    let poll = null;
+    $('#waGo').addEventListener('click', async () => {
+      const wa = $('#waBox');
+      wa.innerHTML = `<div class="muted">…</div>`;
+      const r = await fetch('/api/profile/whatsapp/link', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: AAM.uid }),
+      }).then((x) => x.json()).catch(() => null);
+
+      if (!r || !r.ok) { wa.innerHTML = `<div class="muted">${(r && r.error) || 'שגיאה'}</div>`; return; }
+      wa.innerHTML = `
+        <div style="margin-top:8px">
+          <a class="chip" href="${r.link}" target="_blank" rel="noopener">${AAM_T('wa.button')} ›</a>
+          <div class="muted" style="margin-top:6px">${AAM_T('wa.word')}: <b dir="ltr">${r.word}</b></div>
+          <div class="muted" id="waMsg" aria-live="polite">${AAM_T('wa.waiting')}</div>
+          <div class="muted" style="margin-top:6px">🔒 ${AAM_T('wa.privacy')}</div>
+        </div>`;
+      AAM.track('wa_claim_started');
+
+      // they are off in WhatsApp now; watch for the message to land
+      clearInterval(poll);
+      let tries = 0;
+      poll = setInterval(async () => {
+        if (++tries > 60) return clearInterval(poll);      // ~3 min, then give up quietly
+        const s = await fetch('/api/profile/whatsapp/status?uid=' + encodeURIComponent(AAM.uid))
+          .then((x) => x.json()).catch(() => null);
+        if (s && s.verified) {
+          clearInterval(poll);
+          AAM.track('wa_claim_verified');
+          toast(AAM_T('phone.ok'));
+          renderPhoneBox(s.phone);
+        }
+      }, 3000);
+    });
+  }
+
+  function wirePhoneBox() {
+    const box = $('#phoneBox');
+    wireWhatsAppClaim();
     $('#phSend').addEventListener('click', async () => {
       const r = await fetch('/api/profile/phone/request', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
